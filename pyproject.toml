@@ -13,7 +13,9 @@ dependencies = [
     "pyyaml==6.0.3",
     "dbt==2.0.8",
     "dagster-dbt==0.29.25",
-    "dbt-duckdb==1.11.0"
+    "dbt-duckdb==1.11.0",
+    "duckdb==1.5.6",
+    "duckdb-engine==0.17.0"
 ]
 
 [project.optional-dependencies]

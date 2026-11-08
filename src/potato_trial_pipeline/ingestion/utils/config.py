@@ -34,8 +34,12 @@ class PathConfig(BaseModel):
 
     @field_validator("incoming", "archive", mode="after")
     @classmethod
-    def resolve_against_root(cls, value: Path) -> Path:
-        return value if value.is_absolute() else (PROJECT_ROOT / value).resolve()
+    def resolve_against_root(cls, value: str) -> Path:
+        return (
+            Path(value)
+            if Path(value).is_absolute()
+            else (PROJECT_ROOT / value).resolve()
+        )
 
 
 class IngestPipelineConfig(BaseModel):
