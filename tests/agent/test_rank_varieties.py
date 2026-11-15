@@ -20,8 +20,11 @@ from potato_trial_pipeline.agent.tools.rank_varieties import (
     _largest_connected_group,
     _load_cells,
     _rank_predictions,
+    _trials_better_than_average,
     _variety_stats,
+    for_llm,
     rank_varieties,
+    render_table,
 )
 
 # monkeypatch must replace names where rank_varieties.py LOOKS THEM UP (inside that module),
@@ -382,3 +385,75 @@ def test_large_se_makes_a_big_gap_not_distinguishable():
         preds, _stats(top=3, thin=3), TraitDirection.High, 1, 10
     )
     assert rows[1].distinguishable_from_top is False
+
+
+def test_for_llm_keeps_only_what_an_answer_needs(connected_db, monkeypatch):
+    monkeypatch.setattr(
+        f"{MODULE}._fit_in_r",
+        lambda cells: _fake_fit(
+            [
+                _pred_se("v1", 7.0, 0.1),
+                _pred_se("v2", 6.9, 0.1),
+                _pred_se("v3", 6.0, 0.1),
+            ]
+        ),
+    )
+    result = rank_varieties(query(min_trials=1, env_type="ne"))
+    view = for_llm(result)
+
+    assert view["trait"] == "o_a_score" and view["better"] == "higher"
+    assert view["scope"] == {"env_type": "ne"}  # only the filters that were used
+    assert [r["variety"] for r in view["top"]] == ["v1", "v2", "v3"]
+    assert [r["level_with_top"] for r in view["top"]] == [True, True, False]
+    assert view["top"][0]["years"] == "2010-2015"
+    assert view["top"][0]["beat_trial_average"].endswith(
+        f"of {view['top'][0]['trials']}"
+    )
+    assert view["data_used"]["trials"] == 6 and 0 <= view["heritability"] <= 1
+    assert "raw_mean" not in view["top"][0]  # a second number the model could misreport
+    assert "versions" not in view and "query" not in view
+
+
+@pytest.mark.parametrize(
+    "direction, expected",
+    [
+        (TraitDirection.High, {"good": 2, "poor": 0}),
+        (TraitDirection.Low, {"good": 0, "poor": 2}),
+    ],
+)
+def test_trials_better_than_average(direction, expected):
+    # t1 average 6, t2 average 5: good is above both, poor below both, mid equals t1's average
+    cells = [
+        ("good", "t1", 8.0, 2020),
+        ("mid", "t1", 6.0, 2020),
+        ("poor", "t1", 4.0, 2020),
+        ("good", "t2", 6.0, 2021),
+        ("poor", "t2", 4.0, 2021),
+    ]
+    better = _trials_better_than_average(cells, direction)
+    assert {v: better.get(v, 0) for v in ("good", "poor")} == expected
+    assert better.get("mid", 0) == 0  # equal to the average is not better
+
+
+def test_table_shows_every_row_with_exact_numbers(connected_db, monkeypatch):
+    monkeypatch.setattr(
+        f"{MODULE}._fit_in_r",
+        lambda cells: _fake_fit(
+            [
+                _pred_se("v1", 7.0, 0.1),
+                _pred_se("v2", 6.9, 0.1),
+                _pred_se("v3", 6.0, 0.1),
+            ]
+        ),
+    )
+    result = rank_varieties(query(min_trials=1, env_type="ne"))
+    table = render_table(result)
+    lines = table.splitlines()
+
+    assert lines[0] == "Ranking: o_a_score (higher is better), env_type=ne"
+    assert "7.00 ± 0.10" in table and "6.00 ± 0.10" in table
+    row_v3 = next(line for line in lines if line.startswith("3 "))
+    assert "v3" in row_v3 and row_v3.endswith("no")  # v3 is clearly below the top
+    row_v1 = next(line for line in lines if line.startswith("1 "))
+    assert row_v1.endswith("yes")
+    assert "How to read this table" in table

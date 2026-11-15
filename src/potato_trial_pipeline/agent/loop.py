@@ -21,14 +21,13 @@ from pydantic import BaseModel
 
 from potato_trial_pipeline.agent import settings
 from potato_trial_pipeline.agent.llm import LLM
-from potato_trial_pipeline.agent.tools.registry import run_tool, tool_specs
+from potato_trial_pipeline.agent.tools.registry import ToolOutput, call_tool, tool_specs
 from potato_trial_pipeline.agent.tools.run_sql import schema_card
 
 MAX_ROUNDS = 6
 SYSTEM_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "system.md"
 SQL_EXAMPLES_PATH = Path(__file__).resolve().parent / "prompts" / "sql_examples.md"
 AGENT_LOG = settings.PROJECT_ROOT / "logs" / "agent_runs.jsonl"
-
 REPEAT_NOTE = (
     "You already called this tool with these arguments for this question; the result is "
     "above. Do not call it again. Answer the user now from that result."
@@ -44,11 +43,13 @@ class ToolCallRecord(BaseModel):
     arguments: str
     result: str
     seconds: float
+    display: str | None = None  # e.g. a ranking table shown to the user
 
 
 class AgentResult(BaseModel):
     answer: str
     tool_calls: list[ToolCallRecord]
+    displays: list[str] = []  # tables to show before the answer, exactly as computed
     rounds: int
     stopped_reason: Literal["final_answer", "max_rounds"]
     messages: list[dict]  # the conversation without the system prompt, for follow-ups
@@ -68,20 +69,22 @@ def build_system_prompt() -> str:
     return "\n\n".join([load_system_prompt(), schema_card(), load_sql_examples()])
 
 
-def _run_call(name: str, arguments: str) -> str:
+def _run_call(name: str, arguments: str) -> ToolOutput:
     try:
         parsed = json.loads(arguments)
     except json.JSONDecodeError:
-        return json.dumps(
-            {"error": "arguments are not valid JSON", "received": arguments}
+        return ToolOutput(
+            for_llm=json.dumps(
+                {"error": "arguments are not valid JSON", "received": arguments}
+            )
         )
-
     if not isinstance(parsed, dict):
-        return json.dumps(
-            {"error": "arguments must be a JSON object", "received": arguments}
+        return ToolOutput(
+            for_llm=json.dumps(
+                {"error": "arguments must be a JSON object", "received": arguments}
+            )
         )
-
-    return run_tool(name, parsed)
+    return call_tool(name, parsed)
 
 
 def _call_key(name: str, arguments: str) -> str:
@@ -91,10 +94,8 @@ def _call_key(name: str, arguments: str) -> str:
         parsed = json.loads(arguments)
     except json.JSONDecodeError:
         return f"{name}:{arguments}"
-
     if isinstance(parsed, dict):
         parsed = {k: v for k, v in parsed.items() if v is not None}
-
     return f"{name}:{json.dumps(parsed, sort_keys=True)}"
 
 
@@ -109,7 +110,6 @@ def _log(question: str, model_name: str, result: AgentResult) -> None:
         "stopped_reason": result.stopped_reason,
         "tool_calls": [call.model_dump() for call in result.tool_calls],
     }
-
     with AGENT_LOG.open("a", encoding="utf-8") as f:
         f.write(json.dumps(entry) + "\n")
 
@@ -132,6 +132,7 @@ def answer(question: str, llm: LLM, history: list[dict] | None = None) -> AgentR
             result = AgentResult(
                 answer=text,
                 tool_calls=records,
+                displays=[r.display for r in records if r.display],
                 rounds=round_number,
                 stopped_reason="final_answer",
                 messages=conversation,
@@ -157,33 +158,32 @@ def answer(question: str, llm: LLM, history: list[dict] | None = None) -> AgentR
         for call in turn.tool_calls:
             started = time.perf_counter()
             key = _call_key(call.name, call.arguments)
-
             if key in done:
                 # Small models sometimes call the same tool again and again. Do not run it
                 # again (a ranking takes many seconds); make the model answer instead.
-                output = json.dumps({"note": REPEAT_NOTE})
+                output = ToolOutput(for_llm=json.dumps({"note": REPEAT_NOTE}))
                 offer_tools = False
             else:
                 output = _run_call(call.name, call.arguments)
                 done.add(key)
-
             records.append(
                 ToolCallRecord(
                     name=call.name,
                     arguments=call.arguments,
-                    result=output,
+                    result=output.for_llm,
                     seconds=round(time.perf_counter() - started, 2),
+                    display=output.display,
                 )
             )
-
             conversation.append(
-                {"role": "tool", "tool_call_id": call.id, "content": output}
+                {"role": "tool", "tool_call_id": call.id, "content": output.for_llm}
             )
 
     conversation.append({"role": "assistant", "content": GAVE_UP_MESSAGE})
     result = AgentResult(
         answer=GAVE_UP_MESSAGE,
         tool_calls=records,
+        displays=[r.display for r in records if r.display],
         rounds=MAX_ROUNDS,
         stopped_reason="max_rounds",
         messages=conversation,

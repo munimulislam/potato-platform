@@ -12,6 +12,7 @@ from potato_trial_pipeline.agent.common import ToolError
 from potato_trial_pipeline.agent.tools.registry import (
     TOOLS,
     Tool,
+    call_tool,
     run_tool,
     tool_specs,
 )
@@ -26,9 +27,7 @@ def strict_json(text: str):
     return json.loads(text, parse_constant=reject)
 
 
-# ---------------------------------------------------------------------------------------
 # A fake tool, so these tests need no database and no R
-# ---------------------------------------------------------------------------------------
 class EchoQuery(BaseModel):
     model_config = ConfigDict(extra="forbid")
     word: str
@@ -60,9 +59,7 @@ def fake_tools(monkeypatch):
     return tools
 
 
-# ---------------------------------------------------------------------------------------
 # Tool specs (what the LLM sees)
-# ---------------------------------------------------------------------------------------
 def test_tool_names_are_unique_and_match_specs():
     names = [tool.name for tool in TOOLS]
     assert len(names) == len(set(names))
@@ -83,9 +80,7 @@ def test_env_type_enum_is_inlined_for_the_llm():
     assert '"ne"' in env_type and '"med"' in env_type
 
 
-# ---------------------------------------------------------------------------------------
 # run_tool: every outcome is JSON the LLM can read
-# ---------------------------------------------------------------------------------------
 def test_unknown_tool_lists_valid_tools(fake_tools):
     out = strict_json(run_tool("rank_potatoes", {}))
     assert "unknown tool" in out["error"]
@@ -151,3 +146,37 @@ def test_floats_are_rounded_and_json_is_compact(monkeypatch):
     monkeypatch.setattr(f"{MODULE}.TOOLS", tools)
     out = run_tool("numbers", {"word": "x"})
     assert out == '{"value":7.276,"values":[0.089],"count":42}'
+
+
+def test_to_llm_view_is_used_when_the_tool_has_one(monkeypatch):
+    tools = [
+        Tool(
+            name="echo",
+            description="Echo a word.",
+            input_model=EchoQuery,
+            function=echo,
+            to_llm=lambda result: {"short": result.echoed.upper()},
+        )
+    ]
+    monkeypatch.setattr(f"{MODULE}.TOOLS", tools)
+    assert run_tool("echo", {"word": "hi"}) == '{"short":"HI"}'
+
+
+def test_display_is_returned_separately_from_the_llm_json(monkeypatch):
+    tools = [
+        Tool(
+            name="echo",
+            description="Echo a word.",
+            input_model=EchoQuery,
+            function=echo,
+            to_display=lambda result: f"| {result.echoed} |",
+        )
+    ]
+    monkeypatch.setattr(f"{MODULE}.TOOLS", tools)
+    output = call_tool("echo", {"word": "hi"})
+    assert output.display == "| hi |"
+    assert strict_json(output.for_llm) == {"echoed": "hi"}
+
+
+def test_errors_have_no_display(fake_tools):
+    assert call_tool("echo", {"word": "fail"}).display is None

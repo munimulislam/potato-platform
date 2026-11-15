@@ -20,9 +20,11 @@ def _print_trace(result: AgentResult | None) -> None:
     if result is None or not result.tool_calls:
         print("(no tool calls)")
         return
+
     for i, call in enumerate(result.tool_calls, start=1):
         print(f"[{i}] {call.name}({call.arguments})  {call.seconds} s")
         print(f"    -> {call.result[:300]}{'...' if len(call.result) > 300 else ''}")
+
     print(f"rounds: {result.rounds}, stopped: {result.stopped_reason}")
 
 
@@ -60,7 +62,12 @@ def main() -> None:
                 f"\n(The language model did not respond: {type(e).__name__}. Try again.)"
             )
             continue
+
         history = last.messages
+
+        for table in last.displays:
+            print(f"\n{table}")
+
         print(f"\nAgent: {last.answer}")
 
 

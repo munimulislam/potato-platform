@@ -9,6 +9,7 @@ import pytest
 
 from potato_trial_pipeline.agent.llm import AssistantTurn, FakeLLM, ToolCall
 from potato_trial_pipeline.agent.loop import GAVE_UP_MESSAGE, answer, load_system_prompt
+from potato_trial_pipeline.agent.tools.registry import ToolOutput
 
 MODULE = "potato_trial_pipeline.agent.loop"
 
@@ -18,13 +19,16 @@ def tools(monkeypatch, tmp_path):
     """A fake registry that records calls, and a log file in tmp_path."""
     calls = []
 
-    def fake_run_tool(name, arguments):
+    def fake_call_tool(name, arguments):
         calls.append((name, arguments))
         if arguments.get("trait") == "bad":
-            return json.dumps({"error": "Unknown or non-rankable trait 'bad'."})
-        return json.dumps({"tool": name, "ok": True})
+            error = {"error": "Unknown or non-rankable trait 'bad'."}
+            return ToolOutput(for_llm=json.dumps(error))
+        return ToolOutput(
+            for_llm=json.dumps({"tool": name, "ok": True}), display=f"TABLE for {name}"
+        )
 
-    monkeypatch.setattr(f"{MODULE}.run_tool", fake_run_tool)
+    monkeypatch.setattr(f"{MODULE}.call_tool", fake_call_tool)
     monkeypatch.setattr(f"{MODULE}.tool_specs", lambda: [{"name": "rank_varieties"}])
     monkeypatch.setattr(f"{MODULE}.AGENT_LOG", tmp_path / "logs" / "agent_runs.jsonl")
     monkeypatch.setattr(f"{MODULE}.schema_card", lambda: "# Database (test)")
@@ -39,9 +43,7 @@ def tool_messages(request):
     return [m for m in request if m["role"] == "tool"]
 
 
-# ---------------------------------------------------------------------------------------
 # The basic flows
-# ---------------------------------------------------------------------------------------
 def test_direct_answer_needs_one_round(tools):
     llm = FakeLLM([AssistantTurn(text="Hello")])
     result = answer("hi", llm)
@@ -84,9 +86,7 @@ def test_two_tool_calls_in_one_turn_both_run_in_order(tools):
     assert [m["tool_call_id"] for m in tool_messages(llm.requests[1])] == ["a", "b"]
 
 
-# ---------------------------------------------------------------------------------------
 # Errors go back to the LLM so it can correct itself
-# ---------------------------------------------------------------------------------------
 def test_tool_error_is_sent_back_and_the_retry_runs(tools):
     llm = FakeLLM(
         [
@@ -117,9 +117,7 @@ def test_broken_arguments_are_reported_not_run(tools, raw):
     assert "arguments" in content["error"]
 
 
-# ---------------------------------------------------------------------------------------
 # Limits, history and the audit log
-# ---------------------------------------------------------------------------------------
 def test_endless_tool_calls_stop_at_max_rounds(tools, monkeypatch):
     monkeypatch.setattr(f"{MODULE}.MAX_ROUNDS", 3)
     llm = FakeLLM(
@@ -163,13 +161,36 @@ def test_every_question_is_logged_once_as_valid_json(tools, tmp_path):
 
 def test_system_prompt_names_the_real_tools():
     prompt = load_system_prompt()
-    for name in ("run_sql", "rank_varieties", "distinguishable_from_top"):
+    for name in ("run_sql", "rank_varieties", "level_with_top"):
         assert name in prompt
 
 
-# ---------------------------------------------------------------------------------------
+# Tables are passed to the user exactly as computed, never through the LLM
+def test_tool_display_reaches_the_result_but_not_the_llm(tools):
+    llm = FakeLLM(
+        [
+            AssistantTurn(tool_calls=[call("c1", trait="yield")]),
+            AssistantTurn(text="Explanation."),
+        ]
+    )
+    result = answer("best yield?", llm)
+    assert result.displays == ["TABLE for rank_varieties"]
+    sent_to_llm = json.dumps(llm.requests[1])
+    assert "TABLE for" not in sent_to_llm  # the LLM gets the JSON, not the table
+
+
+def test_repeated_call_shows_the_table_only_once(tools):
+    llm = FakeLLM(
+        [
+            AssistantTurn(tool_calls=[call("c1", trait="yield")]),
+            AssistantTurn(tool_calls=[call("c2", trait="yield")]),
+            AssistantTurn(text="Explanation."),
+        ]
+    )
+    assert answer("best yield?", llm).displays == ["TABLE for rank_varieties"]
+
+
 # Repeated calls: seen in a real run (rank_varieties called 6 times with the same arguments)
-# ---------------------------------------------------------------------------------------
 class RecordingFakeLLM(FakeLLM):
     """Also records which tools were offered on each round."""
 
@@ -225,9 +246,7 @@ def test_tool_calls_when_no_tools_were_offered_are_ignored(tools):
     assert result.answer == GAVE_UP_MESSAGE and result.stopped_reason == "final_answer"
 
 
-# ---------------------------------------------------------------------------------------
 # End to end with the real registry and the real run_sql (no LLM, no R)
-# ---------------------------------------------------------------------------------------
 def test_end_to_end_with_real_run_sql(make_db, monkeypatch, tmp_path):
     path = make_db(
         [("o_a_score", "float", "High", True)],

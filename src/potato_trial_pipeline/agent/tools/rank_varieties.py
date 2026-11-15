@@ -80,6 +80,10 @@ class VarietyRank(BaseModel):
         description="True if clearly different from rank 1: gap > 2 x sqrt(se_top^2 + se^2). "
         "Approximate; ignores the correlation between predictions."
     )
+    trials_better_than_average: int = Field(
+        0,
+        description="In how many of its trials it did better than that trial's average",
+    )
 
 
 class ModelSummary(BaseModel):
@@ -260,6 +264,28 @@ def _differs(p: dict, top: dict) -> bool:
     return p is not top and gap > 2 * se_gap
 
 
+def _trials_better_than_average(
+    cells: list[Cell], direction: TraitDirection
+) -> dict[str, int]:
+    """Per variety: in how many of its trials it beat the trial average (all varieties in
+    that trial). Plain evidence a breeder can check, next to the model's prediction."""
+    by_trial: dict[str, list[float]] = defaultdict(list)
+
+    for _, trial, value, _ in cells:
+        by_trial[trial].append(value)
+
+    trial_mean = {t: sum(v) / len(v) for t, v in by_trial.items()}
+    better: dict[str, int] = defaultdict(int)
+
+    for variety, trial, value, _ in cells:
+        if direction == TraitDirection.High and value > trial_mean[trial]:
+            better[variety] += 1
+        elif direction == TraitDirection.Low and value < trial_mean[trial]:
+            better[variety] += 1
+
+    return better
+
+
 def _rank_predictions(
     predictions: list[dict],
     stats: dict[str, _VarietyStats],
@@ -370,6 +396,11 @@ def rank_varieties(query: RankVarietiesQuery) -> RankVarietiesResult:
     rows, n_candidates = _rank_predictions(
         fit["predictions"], stats, direction, query.min_trials, query.top_n
     )
+    better = _trials_better_than_average(cells, direction)
+    rows = [
+        r.model_copy(update={"trials_better_than_average": better.get(r.variety, 0)})
+        for r in rows
+    ]
     m = fit["model"]
 
     return RankVarietiesResult(
@@ -398,6 +429,94 @@ def rank_varieties(query: RankVarietiesQuery) -> RankVarietiesResult:
         warnings=_build_warnings(
             m, fit.get("warnings", []), excluded, rows, n_candidates, query
         ),
+    )
+
+
+def for_llm(result: RankVarietiesResult) -> dict:
+    """The short version the LLM reads: what an answer needs, plus the evidence behind it,
+    with plain field names. Fewer tokens and less to misread for a small model."""
+    q, m = result.query, result.model
+    scope = q.model_dump(mode="json", exclude={"trait", "min_trials", "top_n"})
+    scope = {k: v for k, v in scope.items() if v is not None}
+    return {
+        "trait": q.trait,
+        "better": "higher" if result.direction == TraitDirection.High else "lower",
+        "scope": scope or "all trials",
+        "method": "mixed model (REML/BLUP) that corrects for differences between trials",
+        "data_used": {
+            "trials": m.n_trials,
+            "varieties": m.n_varieties,
+            "values": m.n_observations,
+            "varieties_ranked": result.n_varieties_ranked,
+        },
+        "heritability": m.heritability,
+        "top": [
+            {
+                "rank": r.rank,
+                "variety": r.variety,
+                "value": r.predicted_value,
+                "se": r.se,
+                "reliability": r.reliability,
+                "trials": r.n_trials,
+                "beat_trial_average": f"{r.trials_better_than_average} of {r.n_trials}",
+                "years": f"{r.first_year}-{r.last_year}",
+                "level_with_top": not r.distinguishable_from_top,
+            }
+            for r in result.rows
+        ],
+        "warnings": result.warnings,
+    }
+
+
+TABLE_LEGEND = """\
+How to read this table:
+  Predicted     the model's estimate of the variety's average, corrected for how good or poor
+                the conditions in each of its trials were; ± is the standard error (uncertainty)
+  Reliability   how much evidence there is for this variety, 0 to 1 (0.8+ strong, below 0.5 weak)
+  Beat average  in how many of its trials it did better than that trial's average
+  Top group     yes = statistically level with rank 1, so not clearly worse than the top"""
+
+
+def render_table(result: RankVarietiesResult) -> str:
+    """The ranking as a plain-text table, shown to the user exactly as computed.
+    The LLM never retypes these numbers, so they cannot be miscopied."""
+    q, m = result.query, result.model
+    better = "higher" if result.direction == TraitDirection.High else "lower"
+    scope = q.model_dump(mode="json", exclude={"trait", "min_trials", "top_n"})
+    scope_text = ", ".join(f"{k}={v}" for k, v in scope.items() if v is not None)
+
+    header = ["Rank", "Variety", "Predicted", "Reliability", "Trials", "Beat average"]
+    header += ["Years", "Top group"]
+    rows = [
+        [
+            str(r.rank),
+            r.variety,
+            f"{r.predicted_value:.2f} ± {r.se:.2f}",
+            f"{r.reliability:.2f}",
+            str(r.n_trials),
+            f"{r.trials_better_than_average} of {r.n_trials}",
+            f"{r.first_year}-{r.last_year}",
+            "no" if r.distinguishable_from_top else "yes",
+        ]
+        for r in result.rows
+    ]
+    widths = [max(len(row[i]) for row in [header, *rows]) for i in range(len(header))]
+
+    def line(cells: list[str]) -> str:
+        return "  ".join(c.ljust(w) for c, w in zip(cells, widths)).rstrip()
+
+    return "\n".join(
+        [
+            f"Ranking: {q.trait} ({better} is better), {scope_text or 'all trials'}",
+            f"Mixed model (REML/BLUP) on {m.n_trials} trials, {m.n_varieties} varieties, "
+            f"{m.n_observations} values; heritability {m.heritability:.2f}",
+            "",
+            line(header),
+            line(["-" * w for w in widths]),
+            *[line(row) for row in rows],
+            "",
+            TABLE_LEGEND,
+        ]
     )
 
 
