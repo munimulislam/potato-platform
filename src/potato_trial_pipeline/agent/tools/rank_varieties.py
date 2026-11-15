@@ -3,11 +3,11 @@
 @Description - Agent tool: rank varieties for one trait with a REML/BLUP linear mixed model.
 
 Flow:
-  1. Validate the query against trait_dictionary (only agent-enabled numeric traits).
+  1. Validate the query against the trait catalog (only rankable traits).
   2. Read variety x trial means from int_trait_experiment_level (read-only), close the DB.
   3. Check there is enough data and keep the largest group of connected trials.
   4. Fit the model in R (fit_blup.R: statgenGxE, value ~ trial + (1 | genotype)).
-  5. Rank by the predicted value (direction from trait_dictionary), apply min_trials / top_n,
+  5. Rank by the predicted value (direction from the trait catalog), apply min_trials / top_n,
      and return the ranking with model statistics and plain-language warnings.
 
 Usage:
@@ -21,14 +21,15 @@ import subprocess
 import tempfile
 import time
 from collections import defaultdict
-from enum import Enum
 from pathlib import Path
 from typing import Optional
 
 import duckdb
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from src.potato_trial_pipeline.agent import settings
+from potato_trial_pipeline.agent import settings
+from potato_trial_pipeline.agent.catalog import Trait, get_traits, is_rankable
+from potato_trial_pipeline.agent.common import EnvType, ToolError, TraitDirection
 
 MIN_TRIALS_TO_FIT = 5  # fewer trials in scope -> no model-based ranking
 MIN_VARIETIES_TO_FIT = 10  # fewer varieties in scope -> no model-based ranking
@@ -36,24 +37,12 @@ R_TIMEOUT_SECONDS = 120
 LOW_HERITABILITY = 0.3  # below this, rankings are mostly noise
 FEW_TRIALS_WARNING = 5  # top-ranked varieties with fewer trials get a caveat
 
-HIGHER_IS_BETTER = "high"
-LOWER_IS_BETTER = "low"
-
-
-class ToolError(Exception):
-    """An error the agent can show to the user or use to correct its call."""
-
-
-class EnvType(str, Enum):
-    NE = "ne"
-    MED = "med"
-
 
 class RankVarietiesQuery(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     trait: str = Field(
-        min_length=1, description="Trait name from trait_dictionary, e.g. o_a_score"
+        min_length=1, description="Trait name from describe_data, e.g. o_a_score"
     )
     env_type: Optional[EnvType] = Field(None, description="Region: ne or med")
     locations: Optional[list[str]] = Field(
@@ -77,13 +66,6 @@ class RankVarietiesQuery(BaseModel):
         return [v.strip().lower() for v in value] if value else None
 
 
-class _VarietyStats(BaseModel):
-    n_trials: int
-    raw_mean: float
-    first_year: int
-    last_year: int
-
-
 class VarietyRank(BaseModel):
     rank: int
     variety: str
@@ -94,6 +76,10 @@ class VarietyRank(BaseModel):
     raw_mean: float
     first_year: int
     last_year: int
+    distinguishable_from_top: bool = Field(
+        description="True if clearly different from rank 1: gap > 2 x sqrt(se_top^2 + se^2). "
+        "Approximate; ignores the correlation between predictions."
+    )
 
 
 class ModelSummary(BaseModel):
@@ -117,71 +103,52 @@ class ModelSummary(BaseModel):
 
 class RankVarietiesResult(BaseModel):
     query: RankVarietiesQuery
-    direction: str
+    direction: TraitDirection
     n_varieties_ranked: int
     rows: list[VarietyRank]
     model: ModelSummary
     warnings: list[str]
 
 
+def _get_rankable_trait(con: duckdb.DuckDBPyConnection, trait: str) -> Trait:
+    traits = {t.trait: t for t in get_traits(con) if is_rankable(t)}
+
+    if trait not in traits:
+        valid = ", ".join(sorted(traits))
+        raise ToolError(
+            f"Unknown or non-rankable trait '{trait}'. Valid traits: {valid}"
+        )
+
+    return traits[trait]
+
+
 Cell = tuple[str, str, float, int]  # (variety, experiment_name, value, year)
 
 
-def _trait_direction(con: duckdb.DuckDBPyConnection, trait: str) -> str:
-    rows = con.execute(f"""
-        SELECT LOWER(TRIM(trait)), LOWER(TRIM(COALESCE(direction, '')))
-        FROM main.trait_dictionary
-        WHERE agent_enabled = TRUE AND LOWER(TRIM(data_type)) = 'float'
-        """).fetchall()
-
-    directions = dict(rows)
-
-    if trait not in directions:
-        valid = ", ".join(sorted(directions))
-        raise ToolError(f"Unknown or disabled trait '{trait}'. Valid traits: {valid}")
-
-    direction = directions[trait]
-
-    if direction == HIGHER_IS_BETTER:
-        return "higher_is_better"
-    if direction == LOWER_IS_BETTER:
-        return "lower_is_better"
-
-    raise ToolError(
-        f"Trait '{trait}' has no ranking direction in trait_dictionary ('{direction}')."
-    )
-
-
 def _load_cells(con: duckdb.DuckDBPyConnection, q: RankVarietiesQuery) -> list[Cell]:
-    sql = f"""
-            SELECT 
-                variety, 
-                experiment_name, 
-                value, 
-                year 
-            FROM main.int_trait_experiment_level 
-            WHERE trait = ?"""
-
+    sql = [
+        f"SELECT variety, experiment_name, value, year FROM main.int_trait_experiment_level WHERE trait = ?"
+    ]
     params: list = [q.trait]
 
     if q.env_type is not None:
-        sql += "AND env_type = ?"
+        sql.append("AND env_type = ?")
         params.append(q.env_type.value)
 
     if q.locations:
-        sql += f"AND location IN ({', '.join('?' for _ in q.locations)})"
+        sql.append(f"AND location IN ({', '.join('?' for _ in q.locations)})")
         params.extend(q.locations)
 
     if q.year_min is not None:
-        sql += "AND year >= ?"
+        sql.append("AND year >= ?")
         params.append(q.year_min)
 
     if q.year_max is not None:
-        sql += "AND year <= ?"
+        sql.append("AND year <= ?")
         params.append(q.year_max)
 
-    sql += f"AND value IS NOT NULL"
-    return con.execute(sql, params).fetchall()
+    sql.append(f"AND value IS NOT NULL")
+    return con.execute(" ".join(sql), params).fetchall()
 
 
 def _largest_connected_group(cells: list[Cell]) -> tuple[list[Cell], list[str]]:
@@ -260,6 +227,13 @@ def _fit_in_r(cells: list[Cell]) -> dict:
     return result
 
 
+class _VarietyStats(BaseModel):
+    n_trials: int
+    raw_mean: float
+    first_year: int
+    last_year: int
+
+
 def _variety_stats(cells: list[Cell]) -> dict[str, _VarietyStats]:
     values: dict[str, list[float]] = defaultdict(list)
     years: dict[str, list[int]] = defaultdict(list)
@@ -279,18 +253,25 @@ def _variety_stats(cells: list[Cell]) -> dict[str, _VarietyStats]:
     }
 
 
+def _differs(p: dict, top: dict) -> bool:
+    """Is the gap to the top variety bigger than about 2 standard errors of the gap?"""
+    gap = abs(p["predicted_value"] - top["predicted_value"])
+    se_gap = (p["se"] ** 2 + top["se"] ** 2) ** 0.5
+    return p is not top and gap > 2 * se_gap
+
+
 def _rank_predictions(
     predictions: list[dict],
     stats: dict[str, _VarietyStats],
-    direction: str,
+    direction: TraitDirection,
     min_trials: int,
     top_n: int,
 ) -> tuple[list[VarietyRank], int]:
     """Filter by min_trials, sort by predicted value in the trait's direction, keep top_n.
     Ties: more trials first, then variety name, so the order is always the same."""
-    candidates = [p for p in predictions if stats[p["variety"]].n_trials >= min_trials]
-    sign = -1 if direction == "higher_is_better" else 1
 
+    candidates = [p for p in predictions if stats[p["variety"]].n_trials >= min_trials]
+    sign = -1 if direction == TraitDirection.High else 1
     candidates.sort(
         key=lambda p: (
             sign * p["predicted_value"],
@@ -298,7 +279,7 @@ def _rank_predictions(
             p["variety"],
         )
     )
-
+    top = candidates[0] if candidates else None
     rows = [
         VarietyRank(
             rank=i,
@@ -306,6 +287,7 @@ def _rank_predictions(
             predicted_value=p["predicted_value"],
             se=p["se"],
             reliability=p["reliability"],
+            distinguishable_from_top=_differs(p, top),
             **stats[p["variety"]].model_dump(),
         )
         for i, p in enumerate(candidates[:top_n], start=1)
@@ -362,7 +344,7 @@ def _build_warnings(
 
 def rank_varieties(query: RankVarietiesQuery) -> RankVarietiesResult:
     with duckdb.connect(str(settings.duckdb_path()), read_only=True) as con:
-        direction = _trait_direction(con, query.trait)
+        direction = _get_rankable_trait(con, query.trait).direction
         cells = _load_cells(con, query)
 
     if not cells:
