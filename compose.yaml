@@ -1,0 +1,123 @@
+#   DEV: docker compose --env-file .env.dev  -f compose.yaml -f compose.dev.yaml  up -d
+#   PROD: docker compose --env-file .env.prod -f compose.yaml -f compose.prod.yaml up -d
+
+x-env-file: &env-file
+  env_file:
+    - path: .env.${APP_ENV:?Pass --env-file .env.dev or .env.prod}
+      required: true
+
+x-dagster: &dagster
+  image: ${REGISTRY}/pipeline:${IMAGE_TAG}
+  build:
+    context: .
+    dockerfile: docker/pipeline.Dockerfile
+    target: ${APP_ENV}
+  <<: *env-file
+  networks: [backend, egress]
+  restart: unless-stopped
+
+services:
+
+  postgres:
+    image: postgres:17-bookworm               
+    <<: *env-file
+    environment:
+      POSTGRES_DB: ${DB_NAME}                  
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres-password  
+    secrets:                                 
+      - postgres-password
+      - dlt-password
+      - dbt-password
+      - dagster-password
+      - agent-password
+      - app-password
+      - app-owner-password
+    volumes:
+      - pgdata:/var/lib/postgresql/data                                   
+      - ./docker/postgres/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro  
+      - ./docker/postgres/init.sql:/init/init.sql:ro                 
+      - ./backups/${APP_ENV}:/backups              
+    networks: [backend]   
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s         
+    restart: unless-stopped
+
+  pipeline-core:                             
+    <<: *dagster
+    command:
+      - sh
+      - -c
+      - >-
+        dbt deps && dbt parse
+        && exec dagster code-server start -h 0.0.0.0 -p 4000
+        -m potato_pipeline.definitions --location-name potato_pipeline
+    secrets: [dlt-password, dbt-password, dagster-password, agent-password]
+    volumes:
+      - ./data:/data
+      - dagster_storage:/opt/dagster/dagster_home/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: true
+    healthcheck:
+      test: ["CMD", "dagster", "api", "grpc-health-check", "-p", "4000"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  pipeline-webserver:                           
+    <<: *dagster
+    command: ["dagster-webserver", "-h", "0.0.0.0", "-p", "3000", "-w", "/opt/dagster/dagster_home/workspace.yaml"]
+    secrets: [dagster-password]
+    depends_on:
+      pipeline-core:
+        condition: service_healthy
+        required: true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:3000/server_info')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  pipeline-daemon:                                         # sensors, schedules, the run queue
+    <<: *dagster
+    command: ["dagster-daemon", "run", "-w", "/opt/dagster/dagster_home/workspace.yaml"]
+    secrets: [dagster-password]
+    depends_on:
+      pipeline-core:
+        condition: service_healthy
+        required: true
+
+networks:
+  backend:
+    name: potato_backend_${APP_ENV}       
+  egress:
+    name: potato_egress_${APP_ENV}  
+
+volumes:
+  pgdata:
+    name: potato_pgdata_${APP_ENV}
+  dagster_storage:
+    name: potato_dagster_storage_${APP_ENV}
+
+secrets:
+  postgres-password:
+    file: ./secrets/${APP_ENV}/postgres-password
+  dlt-password:
+    file: ./secrets/${APP_ENV}/dlt-password
+  dbt-password:
+    file: ./secrets/${APP_ENV}/dbt-password
+  dagster-password:
+    file: ./secrets/${APP_ENV}/dagster-password
+  agent-password:
+    file: ./secrets/${APP_ENV}/agent-password
+  app-password:
+    file: ./secrets/${APP_ENV}/app-password
+  app-owner-password:
+    file: ./secrets/${APP_ENV}/app-owner-password

@@ -1,57 +1,50 @@
 [project]
-name = "potato-trial-pipeline"
+name = "potato-platform"
 requires-python = "==3.12.10"
 version = "0.1.0"
 authors = [
     { name = "Md Munimul Islam", email = "MdMunimul.Islam@teagasc.ie" }
 ]
 
-dependencies = [
-    "dagster==1.13.25",
-    "dagster-dlt==0.29.25",
-    "dlt[duckdb]==1.30.0",
-    "openpyxl==3.1.5",
-    "pydantic==2.13.5",
-    "pyyaml==6.0.3",
-    "dbt==2.0.8",
-    "dagster-dbt==0.29.25",
-    "dbt-duckdb==1.11.0",
-    "duckdb==1.5.6",
-    "duckdb-engine==0.17.0",
-    "openai>=3.50.0",
-    "scikit-learn==1.9.0",
-    "pandas>=2.0",
-    "numpy>=1.26",
-    "pyarrow>=24",
-    "joblib==1.5.3",
-    "mlflow==3.14.0",
-    "optuna==4.9.0",
-    "xgboost==3.2.0",
-    "lightgbm==4.7.0",
-    "shap==0.51.0"
-]
+dependencies = []
 
 [project.optional-dependencies]
 dev = [
-    "dagster-dg-cli==1.13.25",
-    "dagster-webserver==1.13.25",
-    "pytest==9.1.1"
+    "pytest==9.1.1",
+    "ruff==0.17.5"
 ]
 
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["uv_build>=0.13.7,<0.14.0"]
+build-backend = "uv_build"
 
-[tool.hatch.build.targets.wheel]
-force-include = { "pyproject.toml" = "pyproject.toml" }
+[tool.dagster]
+module_name = "potato_pipeline.definitions"
+code_location_name = "potato_pipeline"
 
 [tool.dg]
-directory_type = "project"
+directory_type = "workspace"
 
-[tool.dg.project]
-root_module = "potato_trial_pipeline"
-registry_modules = [
-    "potato_trial_pipeline.components.*",
-]
+[tool.dg.workspace]
+
+[[tool.dg.workspace.projects]]
+path = "apps/pipeline"
+
+[tool.uv.workspace]
+members = ["packages/*", "apps/*"]
+exclude = ["apps/dbt"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+exclude = ["build", "dist", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
 
 

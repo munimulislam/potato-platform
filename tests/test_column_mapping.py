@@ -4,7 +4,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from potato_trial_pipeline.ingestion.pipeline import (
+from apps.pipeline.src.potato-pipeline.defs.ingestion.pipeline import (
     clean_column_name,
 )
 from potato_trial_pipeline.ingestion.trial import Trial

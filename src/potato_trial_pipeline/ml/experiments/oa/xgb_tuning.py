@@ -22,10 +22,10 @@ from sklearn.metrics import root_mean_squared_error, mean_absolute_error, r2_sco
 
 from xgboost import XGBRegressor
 
-from potato_trial_pipeline.ml.common.data import load_data
-from potato_trial_pipeline.ml.common.mlflow import init_mlflow, log_df_artifact
-from potato_trial_pipeline.ml.common.splits import group_kfold_splits
-from potato_trial_pipeline.ml.common.preprocess import make_preprocessor
+from packages.ml.src.ml.data import load_data
+from packages.ml.src.ml.mlflow import init_mlflow, log_df_artifact
+from packages.ml.src.ml.splits import group_kfold_splits
+from packages.ml.src.ml.preprocess import make_preprocessor
 
 DATASET_YAML_PATH = Path(__file__).resolve().parent / "config" / "dataset.yaml"
 

@@ -1,0 +1,15 @@
+services:
+  postgres:
+    restart: always
+  pipeline-core:
+    restart: always
+  pipeline-daemon:
+    restart: always
+  pipeline-webserver:
+    restart: always
+    ports:
+      - "127.0.0.1:3000:3000"
+
+networks:
+  backend:
+    internal: true

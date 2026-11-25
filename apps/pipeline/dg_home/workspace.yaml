@@ -1,0 +1,5 @@
+load_from:
+  - grpc_server:
+      host: pipeline-core
+      port: 4000
+      location_name: potato_pipeline

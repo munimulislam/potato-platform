@@ -1,0 +1,47 @@
+
+name: 'transformation'
+version: '1.0.0'
+
+profile: 'transformation'
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+
+vars:
+  min_varieties_per_trial: 3
+
+seeds:
+  transformation:
+    +schema: reference
+
+models:
+  transformation:
+    +persist_docs:
+      relation: true
+      columns: true
+
+    staging:
+      +schema: staging
+      +materialized: view
+      stg_trials:
+        +materialized: table
+    
+    intermediate:
+      +schema: intermediate
+      +materialized: view
+      int_trait_plot_level:
+        +materialized: table
+      int_trait_experiment_level:
+        +materialized: table
+      fct_variety_trial_relative_performance:
+        +materialized: table
+

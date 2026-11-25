@@ -20,10 +20,10 @@ from sklearn.pipeline import Pipeline
 from sklearn.svm import SVR
 from sklearn.metrics import mean_absolute_error, r2_score, root_mean_squared_error
 
-from potato_trial_pipeline.ml.common.data import load_data
-from potato_trial_pipeline.ml.common.mlflow import init_mlflow
-from potato_trial_pipeline.ml.common.splits import group_kfold_splits
-from potato_trial_pipeline.ml.common.preprocess import make_preprocessor
+from packages.ml.src.ml.data import load_data
+from packages.ml.src.ml.mlflow import init_mlflow
+from packages.ml.src.ml.splits import group_kfold_splits
+from packages.ml.src.ml.preprocess import make_preprocessor
 
 DATASET_YAML_PATH = Path(__file__).resolve().parent / "config" / "dataset.yaml"
 

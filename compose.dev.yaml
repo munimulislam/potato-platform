@@ -1,0 +1,14 @@
+services:
+  postgres:
+    ports:
+      - 5433:5432
+
+  pipeline-core:
+    volumes:
+      - ./packages:/app/packages
+      - ./apps/pipeline:/app/apps/pipeline
+      - ./apps/dbt:/app/apps/dbt
+
+  pipeline-webserver:
+    ports:
+      - 3000:3000

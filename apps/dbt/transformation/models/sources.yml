@@ -1,0 +1,17 @@
+sources:
+  - name: raw_trial_data
+    schema: raw
+    tables:
+      - name: valids
+        description: >
+          dlt loaded valid trial rows.
+        meta:
+          dagster:
+            asset_key: ["dlt_potato_trial_valids"]
+
+      - name: rejects
+        description: >
+          dlt loaded rows that failed validation, with error_message.
+        meta:
+          dagster:
+            asset_key: ["dlt_potato_trial_rejects"]

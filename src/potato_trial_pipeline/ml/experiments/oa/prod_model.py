@@ -26,15 +26,15 @@ from mlflow.models.signature import infer_signature
 
 from xgboost import XGBRegressor
 
-from potato_trial_pipeline.ml.common.data import load_data
-from potato_trial_pipeline.ml.common.mlflow import (
+from packages.ml.src.ml.data import load_data
+from packages.ml.src.ml.mlflow import (
     init_mlflow,
     log_dict_artifact,
     log_joblib_artifact,
     log_df_artifact,
 )
-from potato_trial_pipeline.ml.common.preprocess import make_preprocessor
-from potato_trial_pipeline.ml.common.splits import group_kfold_splits
+from packages.ml.src.ml.preprocess import make_preprocessor
+from packages.ml.src.ml.splits import group_kfold_splits
 
 DATASET_YAML_PATH = Path(__file__).resolve().parent / "config" / "dataset.yaml"
 
@@ -201,7 +201,6 @@ def _cv_metrics_best_params(
     categorical_cols: List[str],
     best_params: Dict[str, Any],
 ) -> Dict[str, float]:
-
     y_all = df[target_col].to_numpy(dtype=float)
     env_upper = _upper_str(df["env_type"])
 

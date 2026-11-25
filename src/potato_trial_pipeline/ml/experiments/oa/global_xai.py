@@ -7,7 +7,7 @@
 from __future__ import annotations
 from pathlib import Path
 import json
-from potato_trial_pipeline.ml.common.preprocess import make_preprocessor
+from packages.ml.src.ml.preprocess import make_preprocessor
 import numpy as np
 import pandas as pd
 import matplotlib

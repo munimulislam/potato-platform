@@ -1,0 +1,36 @@
+# Version control and local environments
+.git
+**/.venv
+.env*
+
+# Secrets and data: never in the build context
+secrets
+data
+backups
+**/*.xlsx
+**/*.xls
+**/*.duckdb
+**/*.duckdb.wal
+**/*.db
+**/*.sqlite
+mlruns
+
+# Python caches
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+
+# dbt
+**/target
+**/dbt_packages
+**/logs
+**/.user.yml
+
+# Dagster
+**/dg_home/*
+!**/dg_home/dagster.yaml
+!**/dg_home/workspace.yaml
+**/.telemetry
+**/.tmp_*

@@ -19,9 +19,9 @@ from xgboost import XGBRegressor
 from sklearn.model_selection import GroupKFold
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
-from potato_trial_pipeline.ml.common.data import load_data
-from potato_trial_pipeline.ml.common.mlflow import init_mlflow, log_df_artifact
-from potato_trial_pipeline.ml.common.preprocess import make_preprocessor
+from packages.ml.src.ml.data import load_data
+from packages.ml.src.ml.mlflow import init_mlflow, log_df_artifact
+from packages.ml.src.ml.preprocess import make_preprocessor
 
 DATASET_YAML_PATH = Path(__file__).resolve().parent / "config" / "dataset.yaml"
 
@@ -128,7 +128,6 @@ def eval_global_cv1(
     numeric_cols: List[str],
     categorical_cols: List[str],
 ) -> Dict[str, float]:
-
     feature_cols = numeric_cols + categorical_cols
 
     y_all = df[target_col].to_numpy(dtype=float)
@@ -191,7 +190,6 @@ def eval_env_specific_cv1(
     categorical_cols: List[str],
     env_value: str,
 ) -> Dict[str, float]:
-
     feature_cols = numeric_cols + categorical_cols
     env_upper = _upper_str(df[ENV_COL])
     df_sub = df.loc[env_upper == env_value].copy()
@@ -274,7 +272,6 @@ def eval_transfer_unseen_variety(
     train_env: str,
     test_env: str,
 ) -> Dict[str, float]:
-
     feature_cols = numeric_cols + categorical_cols
 
     env_upper = _upper_str(df[ENV_COL])

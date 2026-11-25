@@ -1,9 +1,29 @@
-# Byte-compiled / optimized / DLL files
+secrets/
+backups/
+.env
+.env.dev
+.env.prod
+.envrc
+*.duckdb
+*.duckdb.wal
+*.db
+*.sqlite
+*.xlsx
+*.xls
+test.csv
+
+data/**
+!data/**/
+!data/**/.gitkeep
+!data/**/*.dvc
+!data/**/*.json
+
+tests/fixtures/**
+!tests/fixtures/.gitkeep
+
 __pycache__/
 *.py[codz]
 *$py.class
-
-# C extensions
 *.so
 
 # Distribution / packaging
@@ -25,8 +45,6 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
-
-
 *.manifest
 *.spec
 
@@ -34,7 +52,19 @@ MANIFEST
 pip-log.txt
 pip-delete-this-directory.txt
 
-# Unit test / coverage reports
+# Environments
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+__pypackages__/
+.pdm-python
+.pdm-build/
+.pixi
+
+# Tests, coverage, linters, type checkers
 htmlcov/
 .tox/
 .nox/
@@ -48,116 +78,50 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 cover/
-
-*.mo
-*.pot
-
-*.log
-local_settings.py
-db.sqlite3
-db.sqlite3-journal
-
-instance/
-.webassets-cache
-
-.scrapy
-
-docs/_build/
-
-.pybuilder/
-target/
-
-.ipynb_checkpoints
-
-profile_default/
-ipython_config.py
-
-
-.pdm-python
-.pdm-build/
-
-
-.pixi
-
-# PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm
-__pypackages__/
-
-# Celery stuff
-celerybeat-schedule
-celerybeat.pid
-
-# SageMath parsed files
-*.sage.py
-
-# Environments
-.env
-.envrc
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
-# Spyder project settings
-.spyderproject
-.spyproject
-
-
-.ropeproject
-
-
-/site
-
-# mypy
+.ruff_cache/
 .mypy_cache/
 .dmypy.json
 dmypy.json
-
 .pyre/
-
-
 .pytype/
-
-
 cython_debug/
 
-
-.abstra/
-
-
-.ruff_cache/
-
-# PyPI configuration file
-.pypirc
-
-# Marimo
+# Notebooks and tools
+.ipynb_checkpoints
+profile_default/
+ipython_config.py
 marimo/_static/
 marimo/_lsp/
 __marimo__/
-
-# Streamlit
 .streamlit/secrets.toml
+.abstra/
+.pypirc
+*.mo
+*.pot
+docs/_build/
+/site
 
-data/**
-!data/**/
-!data/**/.gitkeep
-!data/**/*.dvc
-!data/**/*.json
+# Logs
+*.log
 
+# dbt
+target/
+dbt_packages/
+.user.yml
+
+# Dagster
 .dg
 .tmp_**
 .telemetry
-history
-schedules
-storage
-logs
+/storage/
+/history/
+/schedules/
+/logs/
 
+apps/pipeline/dg_home/**
+!apps/pipeline/dg_home/dagster.yaml
+!apps/pipeline/dg_home/workspace.yaml
 
-dg_home/**
-!dg_home/dagster.yaml
-tests/fixtures/**
-!tests/fixtures/.gitkeep
-
+# MLflow
 mlruns
 mlflow.db

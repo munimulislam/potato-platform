@@ -330,7 +330,6 @@ def _build_warnings(
     n_candidates: int,
     query: RankVarietiesQuery,
 ) -> list[str]:
-
     warnings = list(r_warnings)
 
     if excluded:
