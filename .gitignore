@@ -1,8 +1,6 @@
 secrets/
 backups/
 .env
-.env.dev
-.env.prod
 .envrc
 *.duckdb
 *.duckdb.wal
