@@ -19,6 +19,7 @@ dependencies = [
     "psycopg[binary]>=3.3.9",
     "sqlalchemy>=2.0,<2.1",
     "openpyxl>=3.1.5",
+    "potato-core"
 ]
 
 [project.optional-dependencies]

@@ -1,38 +1,32 @@
 [project]
 name = "potato-platform"
-requires-python = "==3.12.10"
 version = "0.1.0"
+requires-python = ">=3.12,<3.13"
 authors = [
     { name = "Md Munimul Islam", email = "MdMunimul.Islam@teagasc.ie" }
 ]
-
 dependencies = []
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     "pytest==9.1.1",
-    "ruff==0.17.5"
+    "ruff==0.17.5",
 ]
 
-[build-system]
-requires = ["uv_build>=0.13.7,<0.14.0"]
-build-backend = "uv_build"
-
-[tool.dagster]
-module_name = "potato_pipeline.definitions"
-code_location_name = "potato_pipeline"
-
-[tool.dg]
-directory_type = "workspace"
-
-[tool.dg.workspace]
-
-[[tool.dg.workspace.projects]]
-path = "apps/pipeline"
+[tool.uv]
+package = false
 
 [tool.uv.workspace]
 members = ["packages/*", "apps/*"]
 exclude = ["apps/dbt"]
+
+[tool.uv.sources]
+potato-core = { workspace = true }
+ml = { workspace = true }
+
+[tool.dagster]
+module_name = "potato_pipeline.definitions"
+code_location_name = "potato_pipeline"
 
 [tool.ruff]
 line-length = 88
@@ -46,5 +40,3 @@ ignore = ["E501"]
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
-
-

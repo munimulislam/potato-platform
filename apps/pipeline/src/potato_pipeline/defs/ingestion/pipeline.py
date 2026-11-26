@@ -1,40 +1,13 @@
 import os
-import re
 from pathlib import Path
 
 import dlt
 import pandas as pd
+from potato_core.naming import clean_column_name
 from pydantic import ValidationError
 
 from potato_pipeline.defs.ingestion.constants import COLUMNS
 from potato_pipeline.defs.ingestion.models import RejectedTrialExcelRow, TrialExcelRow
-
-SYMBOL_MAP = {
-    ">=": "gte ",
-    "<=": "lte ",
-    ">": "gt ",
-    "<": "lt ",
-    "%": "percent ",
-    "#": "hash ",
-}
-
-
-def clean_column_name(name: str) -> str:
-    c = str(name).strip().lower()
-    c = re.sub(r"\s+", " ", c)
-
-    for symbol, text in SYMBOL_MAP.items():
-        c = c.replace(symbol, text)
-
-    c = re.sub(r"[^a-z0-9]+", "_", c)
-    c = c.strip("_")
-
-    if not c:
-        return "val"
-    if not c[0].isalpha():
-        return f"val_{c}"
-
-    return c
 
 
 def _format_errors(exc: ValidationError) -> str:

@@ -13,6 +13,9 @@ ALTER ROLE :"agent_user" SET default_transaction_read_only = on;
 ALTER ROLE :"agent_user" SET statement_timeout = '30s';  
 ALTER ROLE :"dg_user"    SET search_path = dagster;    
 
+ALTER ROLE :"mlflow_user" PASSWORD :'mlflow_pw';
+ALTER ROLE :"mlflow_user" SET search_path = mlflow;
+
 REVOKE ALL ON DATABASE :"db_name" FROM PUBLIC;
 GRANT CONNECT ON DATABASE :"db_name" TO :"dlt_user", :"dbt_user", :"dg_user", :"agent_user", :"app_user", :"app_owner_user";
 GRANT CREATE  ON DATABASE :"db_name" TO :"dlt_user", :"dbt_user";
@@ -38,3 +41,7 @@ ALTER DEFAULT PRIVILEGES FOR ROLE :"app_owner_user" IN SCHEMA app
     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO :"app_user";
 ALTER DEFAULT PRIVILEGES FOR ROLE :"app_owner_user" IN SCHEMA app
     GRANT USAGE, SELECT ON SEQUENCES TO :"app_user";
+
+
+GRANT CONNECT ON DATABASE :"db_name" TO :"mlflow_user";
+CREATE SCHEMA IF NOT EXISTS mlflow AUTHORIZATION :"mlflow_user";

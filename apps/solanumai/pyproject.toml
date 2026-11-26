@@ -1,0 +1,40 @@
+[project]
+name = "solanumai"
+version = "0.1.0"
+description = "Web application for potato breeding workflows with AI"
+readme = "README.md"
+authors = [
+    { name = "Md Munimul Islam", email = "mishyket127@gmail.com" }
+]
+requires-python = "==3.12.10"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "jinja2>=3.1",
+    "psycopg[binary]>=3.2",
+    "psycopg-pool>=3.2",
+    "python-multipart>=0.0.9",    
+    "itsdangerous>=2.2", 
+    "pydantic-settings>=2.4",
+    "authlib>=1.3",
+    "httpx>=0.27",
+    "pandas>=2.2",
+    "numpy>=1.26",
+    "openpyxl>=3.1",    
+    "joblib>=1.4",
+    "mlflow-skinny==3.18.0",   
+    "shap==0.51.0",    
+    "scikit-learn",                
+    "xgboost",
+    "potato-core"
+]
+
+[project.scripts]
+solanumai = "solanumai:main"
+
+[build-system]
+requires = ["uv_build>=0.13.7,<0.14.0"]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+potato-core = { workspace = true }

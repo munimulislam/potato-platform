@@ -32,6 +32,7 @@ services:
       - agent-password
       - app-password
       - app-owner-password
+      - mlflow-password
     volumes:
       - pgdata:/var/lib/postgresql/data                                   
       - ./docker/postgres/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro  
@@ -94,6 +95,65 @@ services:
         condition: service_healthy
         required: true
 
+  mlflow:
+    image: ${REGISTRY}/mlflow:${MLFLOW_VERSION:?Set MLFLOW_VERSION}
+    build:
+      context: .
+      dockerfile: docker/mlflow.Dockerfile
+      args:
+        MLFLOW_VERSION: ${MLFLOW_VERSION}
+    platform: linux/amd64
+    <<: *env-file
+    command:
+      - sh
+      - -c
+      - >-
+        exec mlflow server
+        --host 0.0.0.0 --port 5000 --workers 2
+        --backend-store-uri "postgresql+psycopg2://$${MLFLOW_USER}:$${MLFLOW_PASSWORD}@$${DB_HOST}:$${DB_PORT}/$${DB_NAME}?sslmode=$${DB_SSLMODE:-prefer}"
+        --artifacts-destination /mlartifacts
+    secrets: [mlflow-password]
+    volumes:
+      - mlflow_artifacts:/mlartifacts
+    networks: [backend]
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s        # the first start runs MLflow's database migrations
+    restart: unless-stopped
+
+  solanumai:
+    image: ${REGISTRY:-potato}/solanumai:${IMAGE_TAG:-dev}
+    build:
+      context: .
+      dockerfile: docker/solanumai.Dockerfile
+      target: ${APP_ENV:-dev}
+    platform: linux/amd64
+    <<: *env-file
+    command: ["uvicorn", "solanumai.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+    secrets: [session-secret, app-login-password, agent-password, app-password, app-owner-password]
+    networks: [backend, egress]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: true
+      mlflow:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
 networks:
   backend:
     name: potato_backend_${APP_ENV}       
@@ -105,6 +165,8 @@ volumes:
     name: potato_pgdata_${APP_ENV}
   dagster_storage:
     name: potato_dagster_storage_${APP_ENV}
+  mlflow_artifacts:
+    name: potato_mlflow_artifacts_${APP_ENV}
 
 secrets:
   postgres-password:
@@ -121,3 +183,9 @@ secrets:
     file: ./secrets/${APP_ENV}/app-password
   app-owner-password:
     file: ./secrets/${APP_ENV}/app-owner-password
+  mlflow-password:
+    file: ./secrets/${APP_ENV}/mlflow-password
+  session-secret:
+    file: ./secrets/${APP_ENV}/session-secret
+  app-login-password:
+    file: ./secrets/${APP_ENV}/app-login-password

@@ -12,4 +12,5 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$DB_NAME" \
   -v agent_user="$AGENT_USER"         -v agent_pw="$(secret agent-password)" \
   -v app_user="$APP_USER"             -v app_pw="$(secret app-password)" \
   -v app_owner_user="$APP_OWNER_USER" -v app_owner_pw="$(secret app-owner-password)" \
+  -v mlflow_user="$MLFLOW_USER"       -v mlflow_pw="$(secret mlflow-password)" \
   -f /init/init.sql

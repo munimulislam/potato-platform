@@ -12,3 +12,16 @@ services:
   pipeline-webserver:
     ports:
       - 3000:3000
+
+  mlflow:
+    ports: ["127.0.0.1:500:5000"]
+
+  solanumai:
+    command: ["uvicorn", "solanumai.main:app", "--host", "0.0.0.0", "--port", "8000",
+              "--reload", "--reload-dir", "/app/apps/solanumai/src", "--reload-dir", "/app/packages"]
+    environment:
+      WATCHFILES_FORCE_POLLING: "true"
+    ports: ["127.0.0.1:8000:8000"]
+    volumes:
+      - ./apps/solanumai:/app/apps/solanumai
+      - ./packages:/app/packages
