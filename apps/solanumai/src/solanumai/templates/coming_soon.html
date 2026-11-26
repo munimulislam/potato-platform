@@ -1,8 +1,12 @@
-{% extends "base.html" %}{% block content %}
-<div class="text-center mt-16">
-    <h1 class="text-3xl font-bold">{{ model.display_name }}</h1>
-    <div class="badge badge-ghost badge-lg my-4">Coming soon</div>
-    <p class="opacity-70 max-w-md mx-auto">{{ model.description }}</p>
-    <a href="/" class="btn btn-sm btn-outline mt-6">← Back</a>
+{% extends "base.html" %}
+{% block content %}
+<div class="card" style="max-width: 560px">
+    <div class="card-header row">
+        <h1>{{ model.display_name }}</h1><span class="spacer"></span><span class="badge">Coming soon</span>
+    </div>
+    <div class="card-content stack">
+        <p class="muted">{{ model.description or "This model is being prepared and will be available here soon." }}</p>
+        <div><a href="/" class="btn btn-outline">Back to models</a></div>
+    </div>
 </div>
 {% endblock %}

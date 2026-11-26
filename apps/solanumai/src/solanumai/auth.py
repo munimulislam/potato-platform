@@ -1,15 +1,3 @@
-"""
-Login for SolanumAI.
-
-Two modes (AUTH_MODE):
-- password: one shared password from a secrets file. For local use and the handover only.
-- entra:    Microsoft sign-in (Entra ID, OpenID Connect), the target for Teagasc.
-            Needs an app registration from Teagasc IT (tenant ID, client ID, client secret,
-            redirect URI .../auth/callback, "assignment required" = yes).
-
-The signed-in user is kept in a signed session cookie (SessionMiddleware, see main.py).
-"""
-
 import logging
 import secrets
 
@@ -30,63 +18,59 @@ class NotAuthenticated(Exception):
 
 
 def configure_auth(settings: Settings) -> None:
-    """Register the Entra ID client once at start (entra mode only)."""
-    if settings.auth_mode != "entra":
+    if not settings.microsoft_enabled:
         return
 
     oauth.register(
-        name="entra",
-        # Tenant-specific metadata: only accounts of this tenant (Teagasc) can sign in,
-        # and the token's issuer is checked against it.
-        server_metadata_url=(
-            f"https://login.microsoftonline.com/{settings.entra_tenant_id}/v2.0/.well-known/openid-configuration"
-        ),
-        client_id=settings.entra_client_id,
-        client_secret=settings.entra_client_secret.get_secret_value(),
+        name="microsoft",
+        server_metadata_url=f"https://login.microsoftonline.com/{settings.ms_tenant}/v2.0/.well-known/openid-configuration",
+        client_id=settings.ms_client_id,
+        client_secret=settings.ms_client_secret.get_secret_value(),
         client_kwargs={"scope": "openid profile email"},
     )
 
 
 def require_login(request: Request) -> dict:
-    """Returns the current signed-in user."""
+    """Dependency for every protected route. Returns the signed-in user."""
     user = request.session.get("user")
-
     if not user:
         raise NotAuthenticated()
-
     return user
 
 
 async def not_authenticated_handler(
     request: Request, exc: NotAuthenticated
 ) -> Response:
+    # HTMX swaps responses into part of the page; HX-Redirect makes it load /login as a full page.
     if request.headers.get("HX-Request") == "true":
-        # Redirects HTMX to /login.
         return Response(status_code=401, headers={"HX-Redirect": "/login"})
-
+    # API clients (explorer, chat) get JSON; their JavaScript sends the browser to /login.
     if request.url.path.startswith("/api/"):
-        #  JSON response for API endpoints.
         return JSONResponse({"detail": "Not authenticated"}, status_code=401)
-
     return RedirectResponse("/login", status_code=303)
 
 
 def _start_session(request: Request, user: dict) -> None:
-    # A fresh session on every login: nothing from before the login carries over (session fixation).
+    # A fresh session on every sign-in: nothing from before carries over (session fixation).
     request.session.clear()
     request.session["user"] = user
 
 
+def _login_page(request: Request, error: str | None = None, status_code: int = 200):
+    return templates.TemplateResponse(
+        request, "login.html", {"error": error}, status_code=status_code
+    )
+
+
 @router.get("/login")
 def login_page(request: Request):
-    return templates.TemplateResponse(request, "login.html", {"error": None})
+    return _login_page(request)
 
 
 @router.post("/login")
 async def login_with_password(request: Request):
     settings = get_settings()
-
-    if settings.auth_mode != "password":
+    if not settings.auth_password_enabled:
         raise HTTPException(404)
 
     form = await request.form()
@@ -94,63 +78,76 @@ async def login_with_password(request: Request):
     password = str(form.get("password") or "")
     expected = settings.app_login_password.get_secret_value()
 
+    # compare_digest takes the same time wherever the first wrong character is:
+    # the password can't be guessed from response times.
     if secrets.compare_digest(password.encode(), expected.encode()):
-        # The username is only a display label: in password mode everyone shares one password.
-        _start_session(request, {"name": username, "email": None, "method": "password"})
+        # Display label only: in password mode everyone shares one password.
+        _start_session(
+            request,
+            {
+                "id": f"password:{username.lower()}",
+                "name": username,
+                "email": None,
+                "provider": "password",
+            },
+        )
         return RedirectResponse("/", status_code=303)
 
-    log.warning("Failed password login (username=%r)", username)
-
-    return templates.TemplateResponse(
-        request, "login.html", {"error": "Wrong password"}, status_code=401
-    )
+    log.warning("Failed password sign-in (username=%r)", username)
+    return _login_page(request, "Wrong password.", status_code=401)
 
 
-@router.get("/auth/entra")
-async def login_with_entra(request: Request):
-    if get_settings().auth_mode != "entra":
+@router.get("/auth/microsoft")
+async def login_with_microsoft(request: Request):
+    if not get_settings().microsoft_enabled:
         raise HTTPException(404)
-    # This URL must match the redirect URI registered in Entra exactly (scheme, host, port, path).
-    # Behind a reverse proxy, run uvicorn with --proxy-headers so it builds the https URL.
-    redirect_uri = str(request.url_for("auth_callback"))
-    return await oauth.entra.authorize_redirect(request, redirect_uri)
+    # Must match the redirect URI in the app registration exactly (scheme, host, port, path).
+    # Behind a reverse proxy, run uvicorn with --proxy-headers so this becomes https.
+    redirect_uri = str(request.url_for("microsoft_callback"))
+    return await oauth.microsoft.authorize_redirect(request, redirect_uri)
 
 
-@router.get("/auth/callback", name="auth_callback")
-async def auth_callback(request: Request):
-    if get_settings().auth_mode != "entra":
+@router.get("/auth/microsoft/callback", name="microsoft_callback")
+async def microsoft_callback(request: Request):
+    settings = get_settings()
+    if not settings.microsoft_enabled:
         raise HTTPException(404)
     try:
-        # Exchanges the code for tokens and validates the ID token (signature, issuer, audience).
-        token = await oauth.entra.authorize_access_token(request)
+        token = await oauth.microsoft.authorize_access_token(
+            request
+        )  # validates the ID token
     except OAuthError as e:
-        log.warning("Entra sign-in failed: %s", e.error)
-        return templates.TemplateResponse(
-            request,
-            "login.html",
-            {"error": "Microsoft sign-in failed. Please try again."},
-            status_code=401,
+        log.warning("Microsoft sign-in failed: %s", e.error)
+        return _login_page(
+            request, "Microsoft sign-in failed. Please try again.", status_code=401
         )
 
     info = token.get("userinfo") or {}
+    email = str(info.get("email") or info.get("preferred_username") or "").lower()
 
+    allowed = settings.allowed_email_set
+    if allowed and email not in allowed:
+        log.warning("Microsoft sign-in refused for %s (not in ALLOWED_EMAILS)", email)
+        return _login_page(
+            request, "This account doesn't have access to SolanumAI.", status_code=403
+        )
+
+    # oid: stable user ID across apps; sub: stable for this app. Never use the email as the key.
+    stable_id = info.get("oid") or info["sub"]
     _start_session(
         request,
         {
-            "name": info.get("name"),
-            "email": info.get("preferred_username"),
-            "oid": info.get(
-                "oid"
-            ),  # stable Entra user ID: use this, not the email, as a key
-            "method": "entra",
+            "id": f"microsoft:{stable_id}",
+            "name": info.get("name") or email,
+            "email": email,
+            "provider": "microsoft",
         },
     )
-
     return RedirectResponse("/", status_code=303)
 
 
 @router.get("/logout")
 def logout(request: Request):
-    # Ends the SolanumAI session only. The Microsoft session stays, so signing in again is one click.
+    # Ends the SolanumAI session. The Microsoft session stays, so signing in again is one click.
     request.session.clear()
     return RedirectResponse("/login", status_code=303)

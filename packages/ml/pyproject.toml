@@ -6,8 +6,17 @@ readme = "README.md"
 authors = [
     { name = "Md Munimul Islam", email = "mishyket127@gmail.com" }
 ]
-requires-python = ">=3.12.10"
-dependencies = []
+requires-python = "==3.12.10"
+dependencies = [
+    "optuna",
+    "xgboost",
+    "numpy",
+    "pandas",
+    "mlflow",
+    "scikit-learn",
+    "optuna",
+    "duckdb"
+]
 
 [project.scripts]
 ml = "ml:main"

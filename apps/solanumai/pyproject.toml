@@ -26,7 +26,8 @@ dependencies = [
     "shap==0.51.0",    
     "scikit-learn",                
     "xgboost",
-    "potato-core"
+    "potato-core",
+    "ml"
 ]
 
 [project.scripts]
@@ -38,3 +39,4 @@ build-backend = "uv_build"
 
 [tool.uv.sources]
 potato-core = { workspace = true }
+ml = { workspace = true }

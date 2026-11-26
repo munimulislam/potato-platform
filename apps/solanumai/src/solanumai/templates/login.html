@@ -1,13 +1,44 @@
-{% extends "base.html" %}{% block content %}
-<div class="max-w-sm mx-auto mt-16 card bg-base-100 shadow-xl">
-    <div class="card-body">
-        <h2 class="card-title">Sign in</h2>
-        {% if error %}<div class="alert alert-error text-sm py-2">{{ error }}</div>{% endif %}
-        <form method="post" action="/login">
-            <input name="username" placeholder="Name" class="input input-bordered w-full my-2">
-            <input name="password" type="password" placeholder="Password" class="input input-bordered w-full my-2">
-            <button class="btn btn-primary w-full mt-2">Enter</button>
-        </form>
+{% extends "base.html" %}
+{% block title %}Sign in · {{ app_name }}{% endblock %}
+{% block content %}
+<div class="auth-wrap">
+    <div class="card auth-card">
+        <div class="card-header">
+            <h1>{{ app_name }}</h1>
+            <p class="card-description">Sign in to continue.</p>
+        </div>
+        <div class="card-content stack">
+            {% if error %}<div class="alert alert-destructive">{{ error }}</div>{% endif %}
+
+            {% if microsoft_enabled %}
+            <a href="/auth/microsoft" class="btn btn-outline btn-block">
+                <svg width="16" height="16" viewBox="0 0 21 21" aria-hidden="true">
+                    <rect x="1" y="1" width="9" height="9" fill="#f25022" />
+                    <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+                    <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
+                    <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+                </svg>
+                Sign in with Microsoft
+            </a>
+            {% endif %}
+
+            {% if microsoft_enabled and password_enabled %}<div class="divider">or</div>{% endif %}
+
+            {% if password_enabled %}
+            <form method="post" action="/login" class="stack">
+                <div class="field">
+                    <label class="label" for="username">Name</label>
+                    <input class="input" id="username" name="username" autocomplete="username" placeholder="Your name">
+                </div>
+                <div class="field">
+                    <label class="label" for="password">Password</label>
+                    <input class="input" id="password" name="password" type="password" autocomplete="current-password"
+                        required>
+                </div>
+                <button class="btn btn-block" type="submit">Sign in</button>
+            </form>
+            {% endif %}
+        </div>
     </div>
 </div>
 {% endblock %}

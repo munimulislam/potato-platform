@@ -14,7 +14,7 @@ services:
       - 3000:3000
 
   mlflow:
-    ports: ["127.0.0.1:500:5000"]
+    ports: ["127.0.0.1:5000:5000"]
 
   solanumai:
     command: ["uvicorn", "solanumai.main:app", "--host", "0.0.0.0", "--port", "8000",

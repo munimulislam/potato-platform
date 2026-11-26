@@ -22,6 +22,8 @@ vars:
 seeds:
   transformation:
     +schema: reference
+    +grants:
+        select: ['agent_ro', 'app']
 
 models:
   transformation:
@@ -31,11 +33,15 @@ models:
 
     staging:
       +schema: staging
+      +grants:
+        select: ['agent_ro', 'app']
       +materialized: view
       stg_trials:
         +materialized: table
     
     intermediate:
+      +grants:
+        select: ['agent_ro', 'app']
       +schema: intermediate
       +materialized: view
       int_trait_plot_level:

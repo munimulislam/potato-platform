@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+<div id="chat" class="side-layout">
+    <aside class="card card-content stack" style="padding: .75rem">
+        <button id="new-conversation" class="btn btn-block" type="button">New conversation</button>
+        <div id="conversations" class="side-list"></div>
+    </aside>
+
+    <section class="chat-main">
+        <div id="messages" class="messages">
+            <div id="empty" class="empty-state stack">
+                <h1>Ask the data</h1>
+                <p class="muted">For example: “Which varieties yield best in maritime sites?” or “How stable is Rooster
+                    across years?”</p>
+            </div>
+        </div>
+        <p id="thinking" class="row muted text-sm" hidden><span class="spinner"></span> Thinking… answers can take a
+            minute.</p>
+        <form id="composer" class="composer">
+            <textarea id="message" class="textarea" rows="2" maxlength="4000"
+                placeholder="Ask a question about the trial data…" required></textarea>
+            <button id="send" class="btn" type="submit">Send</button>
+        </form>
+    </section>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', path='chat.js') }}" defer></script>{% endblock %}

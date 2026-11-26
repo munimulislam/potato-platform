@@ -10,32 +10,27 @@ import argparse
 import time
 from pathlib import Path
 from typing import Any, Dict, List
-from datetime import datetime
 
-import numpy as np
-import pandas as pd
-import yaml
 import mlflow
 import mlflow.sklearn
+import numpy as np
 import optuna
-from optuna.samplers import TPESampler
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import FunctionTransformer
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+import pandas as pd
+import yaml
+from ml.data import load_data
+from ml.mlflow import init_mlflow, log_df_artifact, log_dict_artifact
+from ml.preprocess import make_preprocessor
+from ml.splits import group_kfold_splits
 from mlflow.models.signature import infer_signature
-
+from optuna.samplers import TPESampler
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.pipeline import Pipeline
 from xgboost import XGBRegressor
+import os
+import tempfile
+from mlflow import MlflowClient
 
-from packages.ml.src.ml.data import load_data
-from packages.ml.src.ml.mlflow import (
-    init_mlflow,
-    log_dict_artifact,
-    log_joblib_artifact,
-    log_df_artifact,
-)
-from packages.ml.src.ml.preprocess import make_preprocessor
-from packages.ml.src.ml.splits import group_kfold_splits
-
+TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", "http://localhost:500")
 DATASET_YAML_PATH = Path(__file__).resolve().parent / "config" / "dataset.yaml"
 
 TRACKING_URI = "sqlite:///mlflow.db"
@@ -277,6 +272,7 @@ def main() -> int:
     )
     ap.add_argument("--registered-model-name", default=REGISTERED_MODEL_NAME_DEFAULT)
     ap.add_argument("--n-trials", type=int, default=40)
+    ap.add_argument("--alias", default="champion", help="registry alias")
     args = ap.parse_args()
 
     cfg = _read_yaml(DATASET_YAML_PATH)
@@ -446,59 +442,52 @@ def main() -> int:
 
         complete_mask = X_train.notna().all(axis=1)
         X_complete = X_train.loc[complete_mask]
-
         if X_complete.empty:
             raise ValueError(
                 "No fully complete rows available for signature sample. "
                 "Every training row has at least one missing feature."
             )
 
-        X_sig = X_complete
-        y_sig_pred = final_pipe.predict(X_sig)
-        signature = infer_signature(X_sig, y_sig_pred)
+        # Small, fixed sample: the SHAP background in SolanumAI and the model signature.
+        # All complete rows would make every explanation slow.
+        sample = X_complete.sample(
+            n=min(SIGNATURE_SAMPLE_N, len(X_complete)), random_state=RANDOM_STATE
+        )
+        signature = infer_signature(sample, final_pipe.predict(sample))
 
-        schema = {
-            "target": target_col,
-            "features": {
-                "numeric": numeric_cols,
-                "categorical": categorical_cols,
-                "feature_cols_order": feature_cols,
-            },
-            "training_policy": {
-                "train_row_filter": f"missing_frac_numeric <= {THRESHOLD} AND target_not_null",
-                "inference_filter": "none (pipeline handles missingness)",
-            },
-            "tuning": {
-                "method": "optuna_full_data_cv1",
-                "objective": "rmse_all (cv mean)",
-                "n_trials": int(args.n_trials),
-            },
-        }
+        with tempfile.TemporaryDirectory() as tmp:
+            sample_path = Path(tmp) / "sample.csv"
+            sample.to_csv(sample_path, index=False)
+            mlflow.log_artifact(
+                str(sample_path), artifact_path="explainer"
+            )  # SolanumAI reads explainer/sample.csv
 
-        log_df_artifact(X_sig, "sample.csv")
         log_dict_artifact(schema, "model_schema.json")
 
-        log_joblib_artifact(final_pipe, "pipeline.joblib")
-
         register_name = args.registered_model_name if args.register else None
-        mlflow.sklearn.log_model(
+        info = mlflow.sklearn.log_model(
             sk_model=final_pipe,
-            artifact_path="model",
+            name="model",  # MLflow 3; on MLflow 2 use artifact_path="model"
             signature=signature,
-            input_example=X_sig,
+            input_example=sample.head(5),  # a few rows are enough
             registered_model_name=register_name,
-            skops_trusted_types=True,
             serialization_format="cloudpickle",
         )
 
+        if args.register:
+            # SolanumAI serves models:/<name>@<alias>: moving the alias is how a model is promoted
+            MlflowClient().set_registered_model_alias(
+                args.registered_model_name, args.alias, info.registered_model_version
+            )
+
         elapsed = time.perf_counter() - t0
         mlflow.log_metric("wall_time_sec", float(elapsed))
-
         print(f"Trained+tuned+logged XGB production model in {elapsed:.1f}s")
         print(f"MLflow run_id: {run_id}")
-        print(f"Load by run: mlflow.sklearn.load_model('runs:/{run_id}/model')")
         if args.register:
-            print(f"Registered as: models:/{args.registered_model_name}/latest")
+            print(
+                f"Registered as: models:/{args.registered_model_name}@{args.alias} (v{info.registered_model_version})"
+            )
 
     return 0
 

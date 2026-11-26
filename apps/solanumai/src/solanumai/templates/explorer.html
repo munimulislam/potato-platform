@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+    <h1>Data explorer</h1>
+    <p class="muted">Browse the published tables. Read-only.</p>
+</div>
+
+<div id="explorer" class="side-layout">
+    <aside class="card card-content" style="padding: .5rem">
+        <div id="table-list" class="side-list">
+            <p class="muted text-sm" style="padding: .75rem">Loading tables…</p>
+        </div>
+    </aside>
+
+    <section class="card">
+        <div class="card-content stack">
+            <div id="table-panel" hidden class="stack">
+                <div class="row">
+                    <h2 id="table-title"></h2>
+                    <span class="spacer"></span>
+                    <a id="download" class="btn btn-outline btn-sm" href="#">Download CSV</a>
+                </div>
+                <form id="filter-form" class="row">
+                    <select id="filter-col" class="input" style="width: auto; min-width: 180px"
+                        aria-label="Column"></select>
+                    <input id="filter-val" class="input" style="flex: 1; min-width: 160px" placeholder="Contains…"
+                        aria-label="Filter value">
+                    <button class="btn btn-sm" type="submit">Filter</button>
+                </form>
+                <div id="table-body"></div>
+                <div class="row">
+                    <button id="prev" class="btn btn-outline btn-sm" type="button">Previous</button>
+                    <span id="page-info" class="muted text-sm"></span>
+                    <button id="next" class="btn btn-outline btn-sm" type="button">Next</button>
+                </div>
+            </div>
+            <p class="muted" id="explorer-hint">Pick a table on the left.</p>
+        </div>
+    </section>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', path='explorer.js') }}" defer></script>{% endblock %}

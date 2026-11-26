@@ -1,117 +1,142 @@
-{% extends "base.html" %}{% block content %}
-<div class="flex justify-between items-center mb-2">
-    <h1 class="text-2xl font-bold">{{ model.display_name }}</h1>
-    <a href="/" class="btn btn-sm btn-ghost">← Models</a>
+{% extends "base.html" %}
+
+{% macro render_field(f) %}
+<div class="field">
+    <label class="label" for="f-{{ f.name }}">
+        {{ f.label or f.name }}{% if f.unit %} <span class="muted">({{ f.unit }})</span>{% endif %}
+    </label>
+    {% if f.options %}
+    <select class="input" id="f-{{ f.name }}" name="{{ f.name }}">
+        <option value="">Not known</option>
+        {% for o in f.options %}<option value="{{ o }}">{{ o }}</option>{% endfor %}
+    </select>
+    {% else %}
+    <input class="input" id="f-{{ f.name }}" name="{{ f.name }}"
+        type="{{ 'number' if f.type in ('number', 'float', 'int', 'integer') else 'text' }}"
+        step="{{ f.step if f.step is defined and f.step else 'any' }}" {% if f.min is defined and f.min is not none
+        %}min="{{ f.min }}" {% endif %} {% if f.max is defined and f.max is not none %}max="{{ f.max }}" {% endif %} {%
+        if f.required %}required{% endif %} placeholder="{{ f.placeholder or '' }}">
+    {% endif %}
+    {% if f.help %}<p class="muted text-sm">{{ f.help }}</p>{% endif %}
+</div>
+{% endmacro %}
+
+{% block content %}
+<div class="page-header row">
+    <div>
+        <h1>{{ model.display_name }}</h1>
+        {% if model.description %}<p class="muted">{{ model.description }}</p>{% endif %}
+    </div>
+    <span class="spacer"></span>
+    <span class="badge badge-success">Model v{{ version }}</span>
 </div>
 
-<div role="tablist" class="tabs tabs-border mb-4">
-    <a role="tab" href="/model/{{ model.key }}?tab=predict"
-        class="tab {% if tab=='predict' %}tab-active{% endif %}">Predict</a>
-    <a role="tab" href="/model/{{ model.key }}?tab=performance"
-        class="tab {% if tab=='performance' %}tab-active{% endif %}">Performance</a>
+<div class="tabs">
+    <a class="tab {{ 'active' if tab == 'predict' }}" href="/model/{{ key }}?tab=predict">Predict</a>
+    <a class="tab {{ 'active' if tab == 'performance' }}" href="/model/{{ key }}?tab=performance">Performance</a>
 </div>
 
-{% if tab=='predict' %}
-<div class="card bg-base-100 shadow-md mb-4">
-    <div class="card-body">
-        <h2 class="font-semibold text-lg">Single prediction</h2>
-        <p class="text-sm opacity-60 mb-2"></p>
-        <form hx-post="/model/{{ model.key }}/predict" hx-target="#result" hx-swap="innerHTML" hx-indicator="#spin">
-            <div class="grid md:grid-cols-2 gap-6">
-                {% for f in fields %}
-                <div>
-                    <label class="text-sm font-semibold">{{ f.desc or f.name }}
-                        {% if f.required %}<span class="text-error">*</span>{% endif %}</label>
-                    {% if f.kind == 'select' %}
-                    <select name="{{ f.name }}" class="select select-bordered w-full mt-1">
-                        {% for value, label in f.choices %}
-                        <option value="{{ value }}">{{ label }}</option>
-                        {% endfor %}
-                    </select>
-                    {% else %}
-                    <input type="number" step="any" name="{{ f.name }}" {% if f.min is not none %}min="{{ f.min }}" {%
-                        endif %} {% if f.max is not none %}max="{{ f.max }}" {% endif %}
-                        class="input input-bordered w-full mt-1">
-                    {% endif %}
-                </div>
-                {% endfor %}
+{% if tab == "predict" %}
+<div class="two-col">
+    <div class="stack">
+        <div class="card">
+            <div class="card-header">
+                <h2>Single prediction</h2>
+                <p class="card-description">Enter what you know. Empty traits are estimated by the model.</p>
             </div>
-            <div class="flex flex-row mt-6">
-                <button class="btn btn-primary">
-                    Predict </span>
-                </button>
-                <span id="spin" class="ml-3 text-primary htmx-indicator loading loading-spinner loading-sm"></span>
+            <div class="card-content">
+                <form hx-post="/model/{{ key }}/predict" hx-target="#result" hx-swap="innerHTML"
+                    hx-indicator="#predict-spinner" class="stack">
+                    <div class="form-grid">
+                        {% for f in fields %}{{ render_field(f) }}{% endfor %}
+                    </div>
+                    <div class="row">
+                        <button class="btn" type="submit">Predict</button>
+                        <span id="predict-spinner" class="htmx-indicator row muted text-sm"><span
+                                class="spinner"></span> Calculating…</span>
+                    </div>
+                </form>
             </div>
+        </div>
 
+        <div class="card">
+            <div class="card-header">
+                <h2>Batch prediction from Excel</h2>
+                <p class="card-description">
+                    One row per variety. Required columns: {{ (lm_numeric + lm_categorical) | join(", ") }}.
+                </p>
+            </div>
+            <div class="card-content">
+                <form method="post" action="/model/{{ key }}/predict-excel" enctype="multipart/form-data" data-download
+                    class="stack">
+                    <input class="input" type="file" name="file" accept=".xlsx" required>
+                    <div class="alert alert-destructive" data-error hidden></div>
+                    <div><button class="btn btn-outline" type="submit">Predict and download</button></div>
+                </form>
+            </div>
+        </div>
+    </div>
 
-        </form>
-        <div id="result" class="mt-4"></div>
+    <div id="result" class="stack">
+        <div class="card card-content muted">The prediction and its explanation appear here.</div>
     </div>
 </div>
 
-<div class="card bg-base-100 shadow-md">
-    <div class="card-body">
-        <h3 class="font-semibold text-lg">Batch prediction (Excel)</h3>
-        <p class="text-sm opacity-60 mb-2">Upload an .xlsx with the trait columns.
+{% else %}
+<div class="grid" style="margin-bottom: 1.5rem">
+    <div class="card card-content">
+        <p class="muted text-sm">Predictions</p>
+        <p class="stat-value">{{ stats.n_predictions }}</p>
+    </div>
+    <div class="card card-content">
+        <p class="muted text-sm">Mean prediction</p>
+        <p class="stat-value">{{ "%.2f" | format(stats.mean_prediction) if stats.mean_prediction is not none else "–" }}
         </p>
-        <form action="/model/{{ model.key }}/predict-excel" method="post" enctype="multipart/form-data">
-            <input type="file" name="file" accept=".xlsx" required
-                class="file-input file-input-bordered file-input-sm w-full max-w-xs">
-            <button class="btn btn-outline btn-primary btn-sm">Upload</button>
-            <span id="spin" class="ml-3 text-primary htmx-indicator loading loading-spinner loading-sm"></span>
-
-        </form>
+    </div>
+    <div class="card card-content">
+        <p class="muted text-sm">Feedback</p>
+        <p class="stat-value">👍 {{ stats.likes }} · 👎 {{ stats.dislikes }}</p>
+    </div>
+    <div class="card card-content">
+        <p class="muted text-sm">Last prediction</p>
+        <p class="stat-value text-sm">{{ stats.last_prediction_at.strftime("%d %b %Y %H:%M") if stats.last_prediction_at
+            else "–" }}</p>
     </div>
 </div>
 
-{% elif tab=='performance' %}
-<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-    <div class="stat bg-base-100 rounded-box shadow">
-        <div class="stat-title">Predictions</div>
-        <div class="stat-value text-2xl">{{ stats.total }}</div>
+<div class="card">
+    <div class="card-header">
+        <h2>Recent predictions</h2>
     </div>
-    <div class="stat bg-base-100 rounded-box shadow">
-        <div class="stat-title">Avg score</div>
-        <div class="stat-value text-2xl">{{ stats.avg_pred if stats.avg_pred is not none else '—' }}</div>
-    </div>
-    <div class="stat bg-base-100 rounded-box shadow">
-        <div class="stat-title">👍 / 👎</div>
-        <div class="stat-value text-2xl">{{ stats.likes }}/{{ stats.dislikes }}</div>
-    </div>
-    <div class="stat bg-base-100 rounded-box shadow">
-        <div class="stat-title">Incomplete inputs</div>
-        <div class="stat-value text-2xl">{{ stats.pct_incomplete }}%</div>
-    </div>
-</div>
-<div class="card bg-base-100 shadow-md">
-    <div class="card-body">
-        <h3 class="font-semibold mb-2">Recent predictions</h3>
-        <div class="overflow-x-auto">
-            <table class="table table-sm">
+    <div class="card-content">
+        {% if history %}
+        <div class="table-wrap">
+            <table class="table">
                 <thead>
                     <tr>
-                        <th>Time</th>
-                        <th>Score</th>
-                        <th>Missing</th>
+                        <th>When</th>
+                        <th>Model version</th>
+                        <th>Prediction</th>
+                        <th>Traits left empty</th>
                         <th>Feedback</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for h in history %}
                     <tr>
-                        <td class="text-xs">{{ h.created_at[:19] }}</td>
-                        <td>{{ '%.2f'|format(h.prediction) }}</td>
+                        <td>{{ h.created_at.strftime("%d %b %Y %H:%M") }}</td>
+                        <td>v{{ h.model_version }}</td>
+                        <td>{{ "%.2f" | format(h.prediction) }}</td>
                         <td>{{ h.n_missing }}</td>
-                        <td>{{ h.feedback or '—' }}</td>
-                    </tr>
-                    {% else %}
-                    <tr>
-                        <td colspan="4" class="opacity-50">No predictions yet.</td>
+                        <td>{{ {"like": "👍", "dislike": "👎"}.get(h.feedback, "–") }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
+        {% else %}
+        <p class="muted">No predictions yet.</p>
+        {% endif %}
     </div>
 </div>
 {% endif %}

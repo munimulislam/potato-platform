@@ -15,7 +15,7 @@ from dotenv import find_dotenv, load_dotenv
 def _duckdb_path() -> Path:
     env_file = find_dotenv(usecwd=True)
     load_dotenv(env_file, override=False)
-    value = os.getenv("DUCKDB_PATH")
+    value = "data/potato_breeding.duckdb"
 
     if not value:
         raise RuntimeError("DUCKDB_PATH is not set. Add it to the project's .env file.")

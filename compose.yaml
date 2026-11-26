@@ -8,10 +8,6 @@ x-env-file: &env-file
 
 x-dagster: &dagster
   image: ${REGISTRY}/pipeline:${IMAGE_TAG}
-  build:
-    context: .
-    dockerfile: docker/pipeline.Dockerfile
-    target: ${APP_ENV}
   <<: *env-file
   networks: [backend, egress]
   restart: unless-stopped
@@ -49,6 +45,10 @@ services:
 
   pipeline-core:                             
     <<: *dagster
+    build:
+      context: .
+      dockerfile: docker/pipeline.Dockerfile
+      target: ${APP_ENV}
     command:
       - sh
       - -c
@@ -102,7 +102,6 @@ services:
       dockerfile: docker/mlflow.Dockerfile
       args:
         MLFLOW_VERSION: ${MLFLOW_VERSION}
-    platform: linux/amd64
     <<: *env-file
     command:
       - sh
@@ -112,6 +111,7 @@ services:
         --host 0.0.0.0 --port 5000 --workers 2
         --backend-store-uri "postgresql+psycopg2://$${MLFLOW_USER}:$${MLFLOW_PASSWORD}@$${DB_HOST}:$${DB_PORT}/$${DB_NAME}?sslmode=$${DB_SSLMODE:-prefer}"
         --artifacts-destination /mlartifacts
+        --allowed-hosts "mlflow,mlflow:5000,localhost,localhost:5000,127.0.0.1:5000"
     secrets: [mlflow-password]
     volumes:
       - mlflow_artifacts:/mlartifacts

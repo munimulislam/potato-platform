@@ -2,58 +2,28 @@
 @File - registry.py
 @Author - MdMunimul.Islam@teagasc.ie
 @Created - 28/07/2026
+
+The models SolanumAI offers, as users see them: name, description, status, output range, unit.
+
+What a model IS (its pipeline and its feature lists) is not defined here. It comes from MLflow,
+together with the exact version being served (model_catalog.py reads the run's model_schema.json).
+So a retrained model with a new feature never disagrees with a list kept by hand, and nothing
+here reads files.
 """
 
-import json
-from dataclasses import dataclass, field
-from typing import Optional
-
-import joblib
+from dataclasses import dataclass
+from typing import Literal
 
 
-@dataclass
+@dataclass(frozen=True)
 class ModelEntry:
     key: str
     display_name: str
     description: str
-    status: str
-    target_range: tuple = (0, 9)
+    status: Literal["live", "coming_soon"]
+    target_range: tuple[float, float] = (0, 9)
     unit: str = ""
-    pipeline_path: Optional[str] = None
-    schema_path: Optional[str] = None
-    _pipeline: object = field(default=None, repr=False)
-    _schema: object = field(default=None, repr=False)
-
-    def load(self):
-        if self._pipeline is not None:
-            return self._pipeline
-        if not self.pipeline_path or not self.schema_path:
-            raise ValueError(f"{self.key}: pipeline_path/schema_path not defined")
-
-        self._pipeline = joblib.load(self.pipeline_path)
-
-        with open(self.schema_path) as f:
-            self._schema = json.load(f)
-
-        return self._pipeline
-
-    @property
-    def numeric(self):
-        if self._schema is None:
-            self.load()
-        return self._schema["features"]["numeric"]
-
-    @property
-    def categorical(self):
-        if self._schema is None:
-            self.load()
-        return self._schema["features"]["categorical"]
-
-    @property
-    def feature_order(self):
-        if self._schema is None:
-            self.load()
-        return self._schema["features"]["feature_cols_order"]
+    registered_model: str | None = None  # name in the MLflow registry
 
 
 REGISTRY = {
@@ -64,24 +34,20 @@ REGISTRY = {
         status="live",
         target_range=(0, 9),
         unit="/ 9",
-        pipeline_path="model/oa/pipeline.joblib",
-        schema_path="model/oa/model_schema.json",
+        registered_model="oa_xgb_prod",
     ),
 }
 
 
-def verify_schema_alignment(entry, input_model):
-    if entry.status != "live":
-        return
-    schema_feats = set(entry.numeric) | set(entry.categorical)
-
-    pyd_feats = set()
-    for n, f in input_model.model_fields.items():
-        pyd_feats.add(f.alias or n)
-    missing = schema_feats - pyd_feats
-    extra = pyd_feats - schema_feats
+def verify_schema_alignment(key: str, model_features: set[str], input_model) -> None:
+    """The form (schemas.py) must match the features of the model version being served.
+    Called by model_catalog.py after loading; a mismatch hides the model instead of
+    letting it predict from the wrong inputs."""
+    form_features = {f.alias or n for n, f in input_model.model_fields.items()}
+    missing = model_features - form_features
+    extra = form_features - model_features
     if missing or extra:
         raise RuntimeError(
-            f"{entry.key}: form/schema mismatch. "
-            f"in schema not in form: {missing}; in form not in schema: {extra}"
+            f"{key}: form/model mismatch. "
+            f"in model not in form: {sorted(missing)}; in form not in model: {sorted(extra)}"
         )

@@ -1,5 +1,5 @@
 SELECT format('CREATE ROLE %I LOGIN', r)
-FROM unnest(ARRAY[:'dlt_user', :'dbt_user', :'dg_user', :'agent_user', :'app_user', :'app_owner_user']) AS r
+FROM unnest(ARRAY[:'dlt_user', :'dbt_user', :'dg_user', :'agent_user', :'app_user', :'app_owner_user', :'mlflow_user']) AS r
 WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = r)\gexec
 
 ALTER ROLE :"dlt_user"       PASSWORD :'dlt_pw';
@@ -34,7 +34,7 @@ GRANT USAGE ON SCHEMA raw TO :"dbt_user";
 GRANT SELECT ON ALL TABLES IN SCHEMA raw TO :"dbt_user";
 ALTER DEFAULT PRIVILEGES FOR ROLE :"dlt_user" IN SCHEMA raw GRANT SELECT ON TABLES TO :"dbt_user";
 
-GRANT USAGE ON SCHEMA intermediate, marts, reference TO :"agent_user", :"app_user";
+GRANT USAGE ON SCHEMA staging, intermediate, marts, reference TO :"agent_user", :"app_user";
 
 GRANT USAGE ON SCHEMA app TO :"app_user";
 ALTER DEFAULT PRIVILEGES FOR ROLE :"app_owner_user" IN SCHEMA app

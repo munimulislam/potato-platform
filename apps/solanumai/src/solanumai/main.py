@@ -1,16 +1,16 @@
 """
-SolanumAI web app: entry point.
-
+SolanumAI web app entry point.
 Run: uvicorn solanumai.main:app --host 0.0.0.0 --port 8000
 """
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from solanumai import store
 from solanumai.auth import (
     NotAuthenticated,
     configure_auth,
@@ -18,10 +18,12 @@ from solanumai.auth import (
     require_login,
 )
 from solanumai.auth import router as auth_router
-from solanumai.db import create_pool
-from solanumai.model_store import load_live_models
-from solanumai.routes import chat, pages, predict, tables
+from solanumai.contracts import ModelStatus
+from solanumai.db import create_db_pool
+from solanumai.model_catalog import ModelCatalog, get_catalog
+from solanumai.routes import chat, explorer, pages, predict
 from solanumai.settings import get_settings
+from solanumai.store import ChatStore, PredictionStore
 from solanumai.templating import templates
 
 logging.basicConfig(
@@ -32,36 +34,42 @@ log = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Runs once at start and once at shutdown (replaces the deprecated @app.on_event('startup'))."""
     settings = get_settings()
-    store.init_db()
-    app.state.models = load_live_models(settings)
-    app.state.pool = create_pool(settings)
-    app.state.pool.open(
-        wait=False
-    )  # the app starts even if Postgres is a few seconds late
+
+    app.state.db_pool = create_db_pool(settings)
+    app.state.db_pool.open(wait=False)
+    app.state.predictions = PredictionStore(app.state.app_pool)
+    app.state.chats = ChatStore(app.state.app_pool)
+
+    app.state.catalog = ModelCatalog(settings)
+    app.state.catalog.start()
+
     log.info(
-        "SolanumAI started: env=%s auth=%s models=%s",
+        "SolanumAI started: env=%s password=%s microsoft=%s",
         settings.app_env,
-        settings.auth_mode,
-        sorted(app.state.models),
+        settings.auth_password_enabled,
+        settings.microsoft_enabled,
     )
+
     yield
-    app.state.pool.close()
+
+    app.state.catalog.stop()
+    app.state.db_pool.close()
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
     configure_auth(settings)
     templates.env.globals.update(
-        app_name=settings.app_name, auth_mode=settings.auth_mode
+        app_name=settings.app_name,
+        password_enabled=settings.auth_password_enabled,
+        microsoft_enabled=settings.microsoft_enabled,
     )
 
     dev = settings.app_env == "dev"
     app = FastAPI(
         title=settings.app_name,
         lifespan=lifespan,
-        # The API docs list every endpoint: useful in dev, not something to publish in prod.
         docs_url="/docs" if dev else None,
         redoc_url=None,
         openapi_url="/openapi.json" if dev else None,
@@ -72,28 +80,33 @@ def create_app() -> FastAPI:
         secret_key=settings.session_secret.get_secret_value(),
         session_cookie="solanumai_session",
         max_age=settings.session_max_age_seconds,
-        same_site="lax",  # cookie not sent with cross-site POSTs: basic CSRF protection
+        same_site="lax",
         https_only=settings.cookie_secure,
     )
+
     app.add_exception_handler(NotAuthenticated, not_authenticated_handler)
 
-    # Public: login, logout, health. Everything else requires a signed-in user.
+    app.mount(
+        "/static",
+        StaticFiles(directory=Path(__file__).parent / "static"),
+        name="static",
+    )
+
     app.include_router(auth_router)
     protected = [Depends(require_login)]
-    app.include_router(pages.router, dependencies=protected)
-    app.include_router(predict.router, dependencies=protected)
-    app.include_router(tables.router, dependencies=protected)
-    app.include_router(chat.router, dependencies=protected)
+
+    for router in (pages.router, predict.router, explorer.router, chat.router):
+        app.include_router(router, dependencies=protected)
 
     @app.get("/health", include_in_schema=False)
     def health():
         return {"status": "ok"}
 
-    @app.get("/health/db", include_in_schema=False)
-    def health_db(request: Request):
-        with request.app.state.pool.connection() as conn:
-            conn.execute("SELECT 1")
-        return {"status": "ok"}
+    @app.get(
+        "/api/models/status", response_model=list[ModelStatus], dependencies=protected
+    )
+    def models_status(catalog: ModelCatalog = Depends(get_catalog)):
+        return catalog.status()
 
     return app
 

@@ -3,7 +3,7 @@ from pathlib import Path
 
 import dlt
 import pandas as pd
-from potato_core.naming import clean_column_name
+from potato_core.column_naming import clean_column_name
 from pydantic import ValidationError
 
 from potato_pipeline.defs.ingestion.constants import COLUMNS
