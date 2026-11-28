@@ -44,6 +44,8 @@ models:
         select: ['agent_ro', 'app']
       +schema: intermediate
       +materialized: view
+      int_trials:
+        +materialized: table
       int_trait_plot_level:
         +materialized: table
       int_trait_experiment_level:

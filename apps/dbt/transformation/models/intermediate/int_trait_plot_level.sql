@@ -1,13 +1,13 @@
 -- int_trait_plot_level
 -- One row = one plot × one trait (cleaned value).
 --
--- Source:  stg_trials.
+-- Source:  int_trials.
 -- Traits:  only numeric traits in trait_dictionary with agent_enabled = TRUE.
 -- Rows:    empty values are dropped.
 
 WITH source AS (
     SELECT *
-    FROM {{ ref('stg_trials') }}
+    FROM {{ ref('int_trials') }}
 ),
 
 dictionary AS (
@@ -18,7 +18,6 @@ dictionary AS (
 
 final_trait_long AS (
     SELECT
-        s._dlt_id,
         s.variety,
         s.experiment_name,
         s.location,
