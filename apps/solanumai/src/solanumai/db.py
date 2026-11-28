@@ -32,6 +32,16 @@ def create_db_pool(settings: Settings) -> ConnectionPool:
     return ConnectionPool(conninfo=conninfo, min_size=1, max_size=5, open=False)
 
 
+def create_read_only_db_pool(settings: Settings) -> ConnectionPool:
+    conninfo = _conninfo(
+        settings,
+        settings.agent_user,
+        settings.agent_password.get_secret_value(),
+        read_only=True,
+    )
+    return ConnectionPool(conninfo=conninfo, min_size=1, max_size=3, open=False)
+
+
 def get_conn(request: Request):
     with request.app.state.db_pool.connection() as conn:
         yield conn

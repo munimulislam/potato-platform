@@ -4,8 +4,9 @@
 @Created - 29/07/2026
 """
 
+from typing import Literal, Optional
+
 from pydantic import BaseModel, Field
-from typing import Optional, Literal
 
 CHOICE_LABELS = {
     "env_type": {

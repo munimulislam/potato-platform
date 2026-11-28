@@ -5,6 +5,7 @@ All SolanumAI configuration.
 import os
 import re
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import SecretStr, model_validator
@@ -61,6 +62,18 @@ class Settings(BaseSettings):
     app_password: SecretStr
     app_owner_user: str
     app_owner_password: SecretStr
+
+    llm_model: str
+    llm_api_key: SecretStr
+    llm_base_url: str | None = None
+    llm_temperature: float | None = 0.0
+    llm_timeout_seconds: float = 600
+    llm_max_retries: int = 0
+    llm_no_think: bool = False
+    rscript_path: Path = Path("/usr/bin/Rscript")
+    agent_max_concurrent: int = 2
+    agent_warm_up: bool = True
+    agent_warm_up_retry_seconds: int = 30
 
     @property
     def microsoft_enabled(self) -> bool:

@@ -1,0 +1,23 @@
+[project]
+name = "potato-data-agent"
+version = "0.1.0"
+description = "Data agent for the potato trials: answers questions with read-only SQL and REML/BLUP rankings"
+readme = "README.md"
+authors = [
+    { name = "Md Munimul Islam", email = "mishyket127@gmail.com" }
+]
+requires-python = ">=3.12.10"
+dependencies = [
+    "openai>=1.40",
+    "pydantic>=2.6",
+    "psycopg[binary]>=3.2",
+    "psycopg-pool>=3.2",
+    "sqlglot>=25",
+]
+
+[project.scripts]
+potato-data-agent = "potato_data_agent.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.13.7,<0.14.0"]
+build-backend = "uv_build"

@@ -68,8 +68,6 @@ class ModelCatalog:
                 for key in _live_keys()
             ]
 
-    # ---------- loading (background thread) ----------
-
     def start(self) -> None:
         threading.Thread(target=self._run, name="model-loader", daemon=True).start()
 

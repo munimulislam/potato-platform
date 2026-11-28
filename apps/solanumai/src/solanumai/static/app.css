@@ -611,3 +611,12 @@ table.table {
         display: none;
     }
 }
+
+.msg pre.display {
+    white-space: pre;
+    overflow-x: auto;
+    margin: 0 0 .75rem;
+    font-size: .75rem;
+    line-height: 1.45;
+    font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+}

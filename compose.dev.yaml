@@ -25,3 +25,6 @@ services:
     volumes:
       - ./apps/solanumai:/app/apps/solanumai
       - ./packages:/app/packages
+  
+  ollama:
+    ports: ["127.0.0.1:11435:11434"] 

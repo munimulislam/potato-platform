@@ -34,6 +34,7 @@ class ChatMessageOut(BaseModel):
     id: UUID
     role: Literal["user", "assistant"]
     content: str
+    displays: list[str] = []
     table: list[dict[str, Any]] | None = None
     trace: list[dict[str, Any]] = []
     created_at: datetime

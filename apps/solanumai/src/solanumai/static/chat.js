@@ -50,6 +50,7 @@
   function renderMessage(m) {
     els.empty.hidden = true;
     const box = el("div", `msg msg-${m.role}`);
+    (m.displays || []).forEach((d) => box.appendChild(el("pre", "display", d)));
     box.appendChild(el("div", "msg-text", m.content));
     if (m.role === "assistant") {
       const t = renderTable(m.table);

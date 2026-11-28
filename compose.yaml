@@ -134,7 +134,6 @@ services:
       context: .
       dockerfile: docker/solanumai.Dockerfile
       target: ${APP_ENV:-dev}
-    platform: linux/amd64
     <<: *env-file
     command: ["uvicorn", "solanumai.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
     secrets: [session-secret, app-login-password, agent-password, app-password, app-owner-password]
@@ -146,6 +145,9 @@ services:
         required: true
       mlflow:
         condition: service_started
+      ollama-init:
+        condition: service_completed_successfully
+        required: false
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
       interval: 30s
@@ -153,6 +155,38 @@ services:
       retries: 3
       start_period: 30s
     restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:${OLLAMA_VERSION:?Set OLLAMA_VERSION in .env.<env>}
+    profiles: [llm]
+    environment:
+      OLLAMA_KEEP_ALIVE: "-1"                                   
+      OLLAMA_CONTEXT_LENGTH: ${LLM_CONTEXT_LENGTH:-8192}     
+      OLLAMA_NUM_PARALLEL: "1"                                  
+    volumes:
+      - ollama_models:/root/.ollama
+    networks: [backend, egress]                               
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
+  ollama-init:
+    image: ollama/ollama:${OLLAMA_VERSION:?Set OLLAMA_VERSION in .env.<env>}
+    profiles: [llm]
+    <<: *env-file
+    environment:
+      OLLAMA_HOST: http://ollama:11434                          # point the ollama command at the server above
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["ollama pull \"$$LLM_MODEL\" && ollama run \"$$LLM_MODEL\" 'Reply with OK.' > /dev/null && echo \"$$LLM_MODEL ready\""]
+    networks: [backend]
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: "no"
 
 networks:
   backend:
@@ -167,6 +201,8 @@ volumes:
     name: potato_dagster_storage_${APP_ENV}
   mlflow_artifacts:
     name: potato_mlflow_artifacts_${APP_ENV}
+  ollama_models:
+    name: potato_ollama_models_${APP_ENV}
 
 secrets:
   postgres-password:

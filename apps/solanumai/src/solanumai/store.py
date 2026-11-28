@@ -6,8 +6,6 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
-# Idempotent: runs at every start. Change existing tables with ALTER TABLE ... IF NOT EXISTS
-# statements here, or with a migration tool (Alembic) once the schema changes often (roadmap).
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS app.predictions (
     id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),

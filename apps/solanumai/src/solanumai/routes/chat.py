@@ -1,14 +1,9 @@
-"""
-Chat API. Conversations and messages are stored in Postgres (ChatStore), per user:
-a user only ever sees their own conversations. History survives restarts, and any number
-of workers or containers can serve the same conversation.
-"""
-
 import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from solanumai.agent_client import AgentResult, ask_agent
+from potato_data_agent import AgentResult, DatabaseUnavailable, LLMUnavailable
+from solanumai.agent_runner import AgentRunner, get_agent_runner
 from solanumai.auth import require_login
 from solanumai.contracts import (
     ChatMessageOut,
@@ -22,7 +17,8 @@ from solanumai.store import ChatStore, get_chat_store
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
-MAX_HISTORY_MESSAGES = 40  # what the agent sees of earlier turns: keeps prompts bounded
+MAX_HISTORY_MESSAGES = 40
+TRACE_RESULT_CHARS = 500
 
 
 def _to_out(row: dict) -> ChatMessageOut:
@@ -31,10 +27,23 @@ def _to_out(row: dict) -> ChatMessageOut:
         id=row["id"],
         role=row["role"],
         content=row["content"],
+        displays=payload.get("displays") or [],
         table=payload.get("table"),
         trace=payload.get("trace") or [],
         created_at=row["created_at"],
     )
+
+
+def _trace(result: AgentResult) -> list[dict]:
+    return [
+        {
+            "tool": c.name,
+            "arguments": c.arguments,
+            "seconds": c.seconds,
+            "result": c.result[:TRACE_RESULT_CHARS],
+        }
+        for c in result.tool_calls
+    ] + [{"rounds": result.rounds, "stopped": result.stopped_reason}]
 
 
 def _title(message: str) -> str:
@@ -47,6 +56,7 @@ def chat(
     req: ChatRequest,
     user: dict = Depends(require_login),
     chats: ChatStore = Depends(get_chat_store),
+    agent: AgentRunner = Depends(get_agent_runner),
 ):
     if req.conversation_id is None:
         conversation_id = chats.create_conversation(
@@ -65,20 +75,28 @@ def chat(
 
     chats.add_message(conversation_id, "user", req.message)
 
+    payload: dict = {"displays": [], "trace": []}
+
     try:
-        result = ask_agent(history, req.message)
+        result = agent.ask(history, req.message)
+        answer_text = result.answer
+        payload = {"displays": result.displays, "trace": _trace(result)}
+    except (LLMUnavailable, DatabaseUnavailable) as e:
+        log.warning("Agent unavailable (conversation %s): %s", conversation_id, e)
+        answer_text = (
+            f"Sorry, I can't answer right now: {e} Please try again in a moment."
+        )
     except Exception:
+        # The question is saved; the user gets an honest message instead of an error page.
         log.exception("Agent failed (conversation %s)", conversation_id)
-        result = AgentResult(
-            answer="Sorry, I couldn't answer that. Please try again, or rephrase the question."
+        answer_text = (
+            "Sorry, I couldn't answer that. Please try again, or rephrase the question."
         )
 
     saved = chats.add_message(
-        conversation_id,
-        "assistant",
-        result.answer,
-        payload={"table": result.table, "trace": result.trace},
+        conversation_id, "assistant", answer_text, payload=payload
     )
+
     return ChatResponse(conversation_id=conversation_id, message=_to_out(saved))
 
 

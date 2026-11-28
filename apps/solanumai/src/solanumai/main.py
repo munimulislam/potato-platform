@@ -9,8 +9,10 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI
 from fastapi.staticfiles import StaticFiles
+from potato_data_agent import AgentConfig, OpenAILLM, ToolContext
 from starlette.middleware.sessions import SessionMiddleware
 
+from solanumai.agent_runner import AgentRunner
 from solanumai.auth import (
     NotAuthenticated,
     configure_auth,
@@ -19,7 +21,7 @@ from solanumai.auth import (
 )
 from solanumai.auth import router as auth_router
 from solanumai.contracts import ModelStatus
-from solanumai.db import create_db_pool
+from solanumai.db import create_db_pool, create_read_only_db_pool
 from solanumai.model_catalog import ModelCatalog, get_catalog
 from solanumai.routes import chat, explorer, pages, predict
 from solanumai.settings import get_settings
@@ -38,8 +40,33 @@ async def lifespan(app: FastAPI):
 
     app.state.db_pool = create_db_pool(settings)
     app.state.db_pool.open(wait=False)
-    app.state.predictions = PredictionStore(app.state.app_pool)
-    app.state.chats = ChatStore(app.state.app_pool)
+    app.state.predictions = PredictionStore(app.state.db_pool)
+    app.state.chats = ChatStore(app.state.db_pool)
+
+    # Data agent
+    app.state.agent_pool = create_read_only_db_pool(settings)
+    app.state.agent_pool.open(wait=False)
+    agent_config = AgentConfig(
+        model=settings.llm_model,
+        api_key=settings.llm_api_key.get_secret_value(),
+        base_url=settings.llm_base_url,
+        temperature=settings.llm_temperature,
+        timeout_seconds=settings.llm_timeout_seconds,
+        max_retries=settings.llm_max_retries,
+        no_think=settings.llm_no_think,
+        rscript_path=settings.rscript_path,
+        run_log_path=None,
+    )
+
+    app.state.agent_runner = AgentRunner(
+        OpenAILLM(agent_config),
+        ToolContext.create(app.state.agent_pool, agent_config),
+        settings.agent_max_concurrent,
+        settings.agent_warm_up_retry_seconds,
+    )
+
+    if settings.agent_warm_up:
+        app.state.agent_runner.start()
 
     app.state.catalog = ModelCatalog(settings)
     app.state.catalog.start()
@@ -53,6 +80,7 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    app.state.agent_runner.stop()
     app.state.catalog.stop()
     app.state.db_pool.close()
 
