@@ -1,16 +1,16 @@
-// Data explorer: talks to the JSON API (/api/tables). Every value goes in with textContent,
-// never innerHTML, so nothing stored in the data can run as HTML or script.
 (() => {
   const root = document.getElementById("explorer");
   if (!root) return;
 
   const $ = (id) => document.getElementById(id);
   const els = {
-    list: $("table-list"), title: $("table-title"), body: $("table-body"),
-    filterCol: $("filter-col"), filterVal: $("filter-val"), filterForm: $("filter-form"),
-    prev: $("prev"), next: $("next"), pageInfo: $("page-info"), download: $("download"), panel: $("table-panel"),
+    form: $("filters"), env: $("f-env"), yearFrom: $("f-year-from"), yearTo: $("f-year-to"),
+    locations: $("location-options"), trait: $("f-trait"), reset: $("reset"),
+    body: $("table-body"), summary: $("summary"), download: $("download"),
+    prev: $("prev"), next: $("next"), pageInfo: $("page-info"),
   };
-  const state = { schema: null, table: null, page: 1, filterCol: "", filterVal: "" };
+  const ENV_LABELS = { med: "Mediterranean", ne: "North Europe" };
+  const state = { filters: new URLSearchParams(), page: 1, optionsLoaded: false };
 
   const el = (tag, cls, text) => {
     const n = document.createElement(tag);
@@ -19,59 +19,45 @@
     return n;
   };
 
-  async function api(path) {
-    const res = await fetch(path);
+  async function api(url) {
+    const res = await fetch(url);
     if (res.status === 401) { window.location.href = "/login"; throw new Error("Not signed in"); }
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      throw new Error(body.detail || `Request failed (${res.status})`);
+      // 422 from FastAPI has a list of problems; other errors have one message
+      const detail = Array.isArray(body.detail)
+        ? body.detail.map((d) => d.msg.replace(/^Value error, /, "")).join("; ")
+        : body.detail;
+      throw new Error(detail || `Request failed (${res.status})`);
     }
     return res.json();
   }
 
-  const base = () => `/api/tables/${encodeURIComponent(state.schema)}/${encodeURIComponent(state.table)}`;
-  const filterParams = () => {
-    const p = new URLSearchParams();
-    if (state.filterCol && state.filterVal) { p.set("filter_col", state.filterCol); p.set("filter_val", state.filterVal); }
-    return p;
-  };
-
-  async function loadTables() {
-    const tables = await api("/api/tables");
-    const items = [];
-    let lastSchema = null;
-    for (const t of tables) {
-      if (t.schema_name !== lastSchema) { items.push(el("div", "side-heading", t.schema_name)); lastSchema = t.schema_name; }
-      const b = el("button", "side-item");
-      b.type = "button";
-      b.title = `${t.schema_name}.${t.table_name}`;
-      b.append(el("span", null, t.table_name), el("span", "muted text-sm", `  ≈${t.approx_rows.toLocaleString()}`));
-      b.addEventListener("click", () => selectTable(t.schema_name, t.table_name, b));
-      items.push(b);
+  // Only the filters that have a value; the API treats a missing one as "no filter"
+  function readFilters() {
+    const params = new URLSearchParams();
+    for (const [key, value] of new FormData(els.form)) {
+      const v = String(value).trim();
+      if (v) params.set(key, v);
     }
-    els.list.replaceChildren(...items);
+    return params;
   }
 
-  async function selectTable(schema, table, button) {
-    Object.assign(state, { schema, table, page: 1, filterCol: "", filterVal: "" });
-    els.list.querySelectorAll(".side-item").forEach((b) => b.classList.toggle("active", b === button));
-    els.filterVal.value = "";
-    els.panel.hidden = false;
-    await loadPage(true);
+  function fillOptions(o) {
+    const option = (value, label) => { const n = el("option", null, label); n.value = value; return n; };
+    els.env.append(...o.env_types.map((v) => option(v, ENV_LABELS[v] || v)));
+    els.trait.append(...o.traits.map((t) => option(t, t)));
+    els.locations.replaceChildren(...o.locations.map((l) => option(l, l)));
+    for (const input of [els.yearFrom, els.yearTo]) {
+      if (o.year_min != null) input.min = o.year_min;
+      if (o.year_max != null) input.max = o.year_max;
+    }
+    els.yearFrom.placeholder = o.year_min ?? "";
+    els.yearTo.placeholder = o.year_max ?? "";
+    state.optionsLoaded = true;
   }
 
-  async function loadPage(resetColumns = false) {
-    const params = filterParams();
-    params.set("page", state.page);
-    let data;
-    try { data = await api(`${base()}?${params}`); }
-    catch (err) { els.body.replaceChildren(el("div", "alert alert-destructive", err.message)); return; }
-
-    els.title.textContent = `${data.schema_name}.${data.table_name}`;
-    if (resetColumns) {
-      els.filterCol.replaceChildren(...data.columns.map((c) => { const o = el("option", null, c); o.value = c; return o; }));
-    }
-
+  function renderTable(data) {
     const wrap = el("div", "table-wrap");
     const table = el("table", "table");
     const head = el("tr");
@@ -79,7 +65,7 @@
     const thead = el("thead"); thead.appendChild(head);
     const tbody = el("tbody");
     if (!data.rows.length) {
-      const td = el("td", "muted", "No rows match.");
+      const td = el("td", "muted", "No plots match these filters.");
       td.colSpan = data.columns.length;
       const tr = el("tr"); tr.appendChild(td); tbody.appendChild(tr);
     }
@@ -91,22 +77,43 @@
     table.append(thead, tbody);
     wrap.appendChild(table);
     els.body.replaceChildren(wrap);
+  }
+
+  async function load() {
+    const params = new URLSearchParams(state.filters);
+    params.set("page", state.page);
+
+    let data;
+    try { data = await api(`/api/explorer?${params}`); }
+    catch (err) { els.body.replaceChildren(el("div", "alert alert-destructive", err.message)); return; }
+
+    if (!state.optionsLoaded) fillOptions(data.options);
+    renderTable(data);
 
     els.pageInfo.textContent = `Page ${data.page}`;
     els.prev.disabled = data.page <= 1;
     els.next.disabled = !data.has_next;
-    els.download.href = `${base()}/export?${filterParams()}`;
+    els.summary.textContent = state.filters.toString() ? "Filtered plots" : "All plots";
+
+    const csv = new URLSearchParams(state.filters);
+    csv.set("format", "csv");
+    els.download.href = `/api/explorer?${csv}`;
   }
 
-  els.filterForm.addEventListener("submit", (e) => {
+  els.form.addEventListener("submit", (e) => {
     e.preventDefault();
-    state.filterCol = els.filterCol.value;
-    state.filterVal = els.filterVal.value.trim();
+    state.filters = readFilters();
     state.page = 1;
-    loadPage();
+    load();
   });
-  els.prev.addEventListener("click", () => { state.page -= 1; loadPage(); });
-  els.next.addEventListener("click", () => { state.page += 1; loadPage(); });
+  els.reset.addEventListener("click", () => {
+    els.form.reset();
+    state.filters = new URLSearchParams();
+    state.page = 1;
+    load();
+  });
+  els.prev.addEventListener("click", () => { state.page -= 1; load(); });
+  els.next.addEventListener("click", () => { state.page += 1; load(); });
 
-  loadTables().catch((err) => els.list.replaceChildren(el("div", "alert alert-destructive", err.message)));
+  load();
 })();

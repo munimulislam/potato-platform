@@ -620,3 +620,27 @@ table.table {
     line-height: 1.45;
     font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
 }
+
+/* An element marked hidden stays hidden, even when a class (e.g. .row, .stack) sets display */
+[hidden] {
+    display: none !important;
+}
+
+/* explorer filters */
+.filters {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: .5rem .75rem;
+    align-items: end;
+}
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: .25rem;
+}
+
+.field label {
+    font-size: .8rem;
+    color: hsl(var(--muted-foreground));
+}

@@ -1,127 +1,95 @@
-"""
-Data explorer endpoints
-"""
-
 import csv
 import io
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from psycopg import sql
-from solanumai.contracts import TableInfo, TablePage
+from solanumai.contracts import ExplorerOptions, ExplorerPage, ExplorerQuery
 from solanumai.db import get_conn
 
-ALLOWED_SCHEMAS = ["marts", "staging", "intermediate", "reference"]
 PAGE_SIZE = 50
 
-router = APIRouter(prefix="/api/tables", tags=["explorer"])
+ID_COLUMNS = ["year", "env_type", "location", "experiment_name", "variety", "plot"]
+
+ROWS_STMT = """
+    SELECT *
+    FROM intermediate.int_trials AS t
+    WHERE (%(env_type)s::text  IS NULL OR env_type = %(env_type)s)
+      AND (%(year_from)s::int  IS NULL OR year >= %(year_from)s)
+      AND (%(year_to)s::int    IS NULL OR year <= %(year_to)s)
+      AND (%(location)s::text  IS NULL OR location ILIKE %(location)s)
+      AND (%(variety)s::text   IS NULL OR variety ILIKE %(variety)s)
+      AND (%(experiment)s::text IS NULL OR experiment_name ILIKE %(experiment)s)
+      AND (%(trait)s::text     IS NULL OR to_jsonb(t) ->> %(trait)s IS NOT NULL)
+    ORDER BY year DESC, experiment_name, variety, plot
+    LIMIT %(limit)s OFFSET %(offset)s
+"""
+
+OPTIONS_STMT = """
+    SELECT
+        ARRAY(SELECT DISTINCT env_type FROM intermediate.int_trials WHERE env_type IS NOT NULL ORDER BY 1),
+        ARRAY(SELECT DISTINCT location FROM intermediate.int_trials WHERE location IS NOT NULL ORDER BY 1),
+        (SELECT MIN(year) FROM intermediate.int_trials),
+        (SELECT MAX(year) FROM intermediate.int_trials)
+"""
+
+router = APIRouter(prefix="/api/explorer", tags=["explorer"])
 
 
-def _columns(conn, schema: str, table: str) -> list[str]:
-    if schema not in ALLOWED_SCHEMAS:
-        raise HTTPException(404, "Table not found")
-    rows = conn.execute(
-        """
-        SELECT column_name
-        FROM information_schema.columns
-        WHERE table_schema = %s AND table_name = %s
-        ORDER BY ordinal_position
-        """,
-        (schema, table),
-    ).fetchall()
-    if not rows:
-        raise HTTPException(404, "Table not found")
-    return [r[0] for r in rows]
+def _contains(text: str | None) -> str | None:
+    # "contains" for ILIKE; note % and _ typed by the user also act as wildcards
+    return f"%{text}%" if text else None
 
 
-def _select(
-    schema: str,
-    table: str,
-    columns: list[str],
-    filter_col: str | None,
-    filter_val: str | None,
-):
-    query = sql.SQL("SELECT {cols} FROM {tbl}").format(
-        cols=sql.SQL(", ").join(map(sql.Identifier, columns)),
-        tbl=sql.Identifier(schema, table),
-    )
-    params: list = []
-    if filter_col and filter_val:
-        if filter_col not in columns:
-            raise HTTPException(400, f"Unknown column: {filter_col}")
-        query += sql.SQL(" WHERE {col}::text ILIKE %s").format(
-            col=sql.Identifier(filter_col)
+@router.get("", response_model=ExplorerPage)
+def explore(query: Annotated[ExplorerQuery, Query()], conn=Depends(get_conn)):
+    csv_export = query.format == "csv"
+    params = {
+        "env_type": query.env_type,
+        "year_from": query.year_from,
+        "year_to": query.year_to,
+        "location": _contains(query.location),
+        "variety": _contains(query.variety),
+        "experiment": _contains(query.experiment),
+        "trait": query.trait,
+        "limit": None if csv_export else PAGE_SIZE + 1,
+        "offset": 0 if csv_export else (query.page - 1) * PAGE_SIZE,
+    }
+
+    cur = conn.execute(ROWS_STMT, params)
+    names = [d.name for d in cur.description]
+
+    if query.trait and query.trait not in names:
+        raise HTTPException(400, f"Unknown trait: {query.trait}")
+
+    traits = sorted(c for c in names if c not in ID_COLUMNS)
+    columns = ID_COLUMNS + ([query.trait] if query.trait else traits)
+    order = [names.index(c) for c in columns]
+    rows = [[r[i] for i in order] for r in cur.fetchall()]
+
+    if csv_export:
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(columns)
+        writer.writerows(rows)
+        return Response(
+            content="\ufeff" + buf.getvalue(),  # BOM: Excel opens UTF-8 correctly
+            media_type="text/csv",
+            headers={"Content-Disposition": 'attachment; filename="int_trials.csv"'},
         )
-        params.append(f"%{filter_val}%")
-    # Order by every column: stable paging
-    query += sql.SQL(" ORDER BY {order}").format(
-        order=sql.SQL(", ").join(sql.SQL(str(i)) for i in range(1, len(columns) + 1))
-    )
-    return query, params
 
+    env_types, locations, year_min, year_max = conn.execute(OPTIONS_STMT).fetchone()
 
-@router.get("", response_model=list[TableInfo])
-def list_tables(conn=Depends(get_conn)):
-    rows = conn.execute(
-        """
-        SELECT t.table_schema, t.table_name, GREATEST(c.reltuples, 0)::bigint
-        FROM information_schema.tables AS t
-        JOIN pg_namespace AS n ON n.nspname = t.table_schema
-        JOIN pg_class     AS c ON c.relnamespace = n.oid AND c.relname = t.table_name
-        WHERE t.table_schema = ANY(%s)
-        ORDER BY t.table_schema, t.table_name
-        """,
-        (ALLOWED_SCHEMAS,),
-    ).fetchall()
-
-    return [TableInfo(schema_name=s, table_name=t, approx_rows=n) for s, t, n in rows]
-
-
-@router.get("/{schema}/{table}", response_model=TablePage)
-def read_table(
-    schema: str,
-    table: str,
-    page: int = Query(1, ge=1),
-    filter_col: str | None = None,
-    filter_val: str | None = None,
-    conn=Depends(get_conn),
-):
-    columns = _columns(conn, schema, table)
-    query, params = _select(schema, table, columns, filter_col, filter_val)
-    query += sql.SQL(" LIMIT %s OFFSET %s")
-    rows = conn.execute(
-        query, [*params, PAGE_SIZE + 1, (page - 1) * PAGE_SIZE]
-    ).fetchall()
-
-    return TablePage(
-        schema_name=schema,
-        table_name=table,
+    return ExplorerPage(
         columns=columns,
-        rows=[list(r) for r in rows[:PAGE_SIZE]],
-        page=page,
+        rows=rows[:PAGE_SIZE],
+        page=query.page,
         page_size=PAGE_SIZE,
         has_next=len(rows) > PAGE_SIZE,
-    )
-
-
-@router.get("/{schema}/{table}/export")
-def export_csv(
-    schema: str,
-    table: str,
-    filter_col: str | None = None,
-    filter_val: str | None = None,
-    conn=Depends(get_conn),
-):
-    columns = _columns(conn, schema, table)
-    query, params = _select(schema, table, columns, filter_col, filter_val)
-    rows = conn.execute(query, params).fetchall()
-
-    buf = io.StringIO()
-    writer = csv.writer(buf)
-    writer.writerow(columns)
-    writer.writerows(rows)
-
-    return Response(
-        content="\ufeff" + buf.getvalue(),
-        media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="{schema}.{table}.csv"'},
+        options=ExplorerOptions(
+            env_types=env_types,
+            locations=locations,
+            year_min=year_min,
+            year_max=year_max,
+            traits=traits,
+        ),
     )
