@@ -9,6 +9,7 @@
     body: $("table-body"), summary: $("summary"), download: $("download"),
     prev: $("prev"), next: $("next"), pageInfo: $("page-info"),
   };
+  const FROZEN_COLUMNS = 6; // the meta ID columns, always first
   const ENV_LABELS = { med: "Mediterranean", ne: "North Europe" };
   const state = { filters: new URLSearchParams(), page: 1, optionsLoaded: false };
 
@@ -57,9 +58,32 @@
     state.optionsLoaded = true;
   }
 
+  function freezeColumns(table, count) {
+    const headCells = [...table.tHead.rows[0].cells].slice(0, count);
+    const widths = headCells.map((c) => c.getBoundingClientRect().width); // measure first, then change
+    const maxFrozen = table.parentElement.clientWidth * 0.6;
+
+    let left = 0;
+    let frozen = 0;
+    for (const width of widths) {
+      if (left + width > maxFrozen) break;
+      for (const row of table.rows) {
+        const cell = row.cells[frozen];
+        if (!cell || cell.colSpan > 1) continue; // skip the "No plots match" row
+        cell.classList.add("frozen");
+        cell.style.left = `${left}px`;
+      }
+      left += width;
+      frozen += 1;
+    }
+    if (frozen) {
+      for (const row of table.rows) row.cells[frozen - 1]?.classList.add("frozen-last");
+    }
+  }
+
   function renderTable(data) {
-    const wrap = el("div", "table-wrap");
-    const table = el("table", "table");
+    const wrap = el("div", "table-wrap table-wrap-tall");
+    const table = el("table", "table table-frozen");
     const head = el("tr");
     data.columns.forEach((c) => head.appendChild(el("th", null, c)));
     const thead = el("thead"); thead.appendChild(head);
@@ -77,6 +101,7 @@
     table.append(thead, tbody);
     wrap.appendChild(table);
     els.body.replaceChildren(wrap);
+    freezeColumns(table, FROZEN_COLUMNS);
   }
 
   async function load() {

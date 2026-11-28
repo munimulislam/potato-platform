@@ -644,3 +644,40 @@ table.table {
     font-size: .8rem;
     color: hsl(var(--muted-foreground));
 }
+
+/* explorer: the header row and the ID columns stay put while the rest scrolls */
+.table-wrap-tall {
+    max-height: 65vh;
+    /* the wrap scrolls (not the page), so the sticky header works */
+}
+
+.table-frozen {
+    border-collapse: separate;
+    /* with "collapse", borders of sticky cells scroll away */
+    border-spacing: 0;
+}
+
+.table-frozen th {
+    z-index: 2;
+}
+
+.table-frozen td.frozen {
+    position: sticky;
+    z-index: 1;
+    background: hsl(var(--card));
+    /* solid, so scrolled cells don't show through */
+}
+
+.table-frozen th.frozen {
+    z-index: 3;
+    /* top-left corner: above both the header row and the frozen columns */
+}
+
+.table-frozen tbody tr:hover td.frozen {
+    background: color-mix(in srgb, hsl(var(--muted)) 50%, hsl(var(--card)));
+}
+
+.table-frozen .frozen-last {
+    box-shadow: inset -1px 0 0 hsl(var(--border));
+    /* a line where the scrolling starts */
+}

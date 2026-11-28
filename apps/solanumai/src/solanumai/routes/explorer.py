@@ -74,7 +74,7 @@ def explore(query: Annotated[ExplorerQuery, Query()], conn=Depends(get_conn)):
         return Response(
             content="\ufeff" + buf.getvalue(),  # BOM: Excel opens UTF-8 correctly
             media_type="text/csv",
-            headers={"Content-Disposition": 'attachment; filename="int_trials.csv"'},
+            headers={"Content-Disposition": 'attachment; filename="trial_data.csv"'},
         )
 
     env_types, locations, year_min, year_max = conn.execute(OPTIONS_STMT).fetchone()
