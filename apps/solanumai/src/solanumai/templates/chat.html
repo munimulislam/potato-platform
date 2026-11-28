@@ -1,27 +1,65 @@
 {% extends "base.html" %}
 {% block content %}
-<div id="chat" class="side-layout">
-    <aside class="card card-content stack" style="padding: .75rem">
-        <button id="new-conversation" class="btn btn-block" type="button">New conversation</button>
-        <div id="conversations" class="side-list"></div>
+<div id="chat" class="chat">
+    <aside id="chat-sidebar" class="chat-sidebar">
+        <button id="new-conversation" class="btn btn-outline btn-block" type="button">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                aria-hidden="true">
+                <path d="M12 5v14M5 12h14" />
+            </svg>
+            New chat
+        </button>
+        <nav id="conversations" class="chat-history" aria-label="Previous chats"></nav>
     </aside>
+    <div id="sidebar-backdrop" class="chat-backdrop" hidden></div>
 
     <section class="chat-main">
-        <div id="messages" class="messages">
-            <div id="empty" class="empty-state stack">
-                <h1>Ask the data</h1>
-                <p class="muted">For example: “Which varieties yield best in maritime sites?” or “How stable is Rooster
-                    across years?”</p>
+        <button id="sidebar-toggle" class="btn btn-ghost btn-icon chat-sidebar-toggle" type="button"
+            aria-label="Show chats">☰</button>
+
+        <div id="messages" class="chat-scroll">
+            <div id="thread" class="chat-thread">
+                <div id="empty" class="chat-empty">
+                    <h1>Ask the trial data</h1>
+                    <p class="muted">Answers come from the Teagasc trial database and can take about a minute.</p>
+                    <div class="chat-examples">
+                        <button type="button" class="chat-example" data-example>How many varieties are in the
+                            database?</button>
+                        <button type="button" class="chat-example" data-example>List all the trial sites</button>
+                        <button type="button" class="chat-example" data-example>Tell me about the mealiness
+                            trait</button>
+                        <button type="button" class="chat-example" data-example>Which variety is best for uniformity in
+                            North Europe in the last 10 years?</button>
+                    </div>
+                </div>
             </div>
         </div>
-        <p id="thinking" class="row muted text-sm" hidden><span class="spinner"></span> Thinking… answers can take a
-            minute.</p>
-        <form id="composer" class="composer">
-            <textarea id="message" class="textarea" rows="2" maxlength="4000"
-                placeholder="Ask a question about the trial data…" required></textarea>
-            <button id="send" class="btn" type="submit">Send</button>
+
+        <form id="composer" class="chat-composer">
+            <textarea id="message" rows="1" maxlength="4000" placeholder="Ask a question about the trial data…"
+                aria-label="Message" required></textarea>
+            <button id="send" class="chat-send" type="submit" aria-label="Send">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                    aria-hidden="true">
+                    <path d="M12 19V5M5 12l7-7 7 7" />
+                </svg>
+            </button>
         </form>
+        <p class="chat-footnote muted">Answers can contain mistakes. Open "How this was answered" to check the source.
+        </p>
     </section>
+    <dialog id="delete-dialog" class="dialog" aria-labelledby="delete-dialog-title">
+        <form method="dialog">
+            <h2 id="delete-dialog-title">Delete chat?</h2>
+            <p class="muted">"<span id="delete-dialog-name"></span>" will be deleted permanently.</p>
+            <div class="dialog-actions">
+                <button class="btn btn-outline" value="cancel" autofocus>Cancel</button>
+                <button class="btn btn-destructive" value="delete">Delete</button>
+            </div>
+        </form>
+    </dialog>
+        
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 </div>
 {% endblock %}
 {% block scripts %}
